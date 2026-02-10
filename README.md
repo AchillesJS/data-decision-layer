@@ -1,6 +1,6 @@
 # Data Decision Layer — Decision Workspace for ML Data Decisions
 
-## Что это за проект (в 1 минуту)
+## Что это за проект 
 
 **Data Decision Layer** — это **Decision Workspace for ML data decisions**.
 
