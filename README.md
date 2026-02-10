@@ -76,45 +76,39 @@ Data → Train → Evaluate → DECISION WORKSPACE → Data actions → Retrain
 
 ## Структура репозитория
 
+```text
 data-decision-layer/
-├── core/ # доменные объекты (Pydantic), инварианты
-│ ├── init.py
-│ └── error.py
-│
-├── store/ # DB слой (позже: models, repository, migrations)
-│ └── migrations/ # Alembic init
-│ ├── env.py
-│ ├── script.py.mako
-│ └── versions/
-│
-├── api/ # FastAPI слой (транспорт)
-│ └── main.py
-│
-├── ui/ # UI (позже)
-│ └── app.py
-│
-├── tests/ # pytest
-│ ├── init.py
-│ └── test_core_objects.py
-│
-├── docs/
-│ ├── canon.md
-│ └── anti_features.md
-│
-├── data/
-│ └── sample_errors.csv
-│
-├── scripts/ # “кнопки” запуска/проверок (Windows)
-│ ├── run_api.bat
-│ ├── test.bat
-│ ├── lint.bat
-│ └── typecheck.bat
-│
-├── alembic.ini # конфиг alembic (SQLite url)
-├── pyproject.toml # конфиг pytest/ruff/mypy
-├── requirements.txt # зависимости
-└── README.md
+├─ core/  # доменные объекты (Pydantic), инварианты
+│  ├─ __init__.py
+│  └─ error.py
+├─ store/ # DB слой (позже: models, repository, migrations)
+│  └─ migrations/ # Alembic init
+│     ├─ env.py
+│     ├─ script.py.mako
+│     └─ versions/
+├─ api/   # FastAPI слой (транспорт)
+│  └─ main.py
+├─ ui/    # UI (позже)
+│  └─ app.py
+├─ tests/ # pytest
+│  ├─ __init__.py
+│  └─ test_core_objects.py
+├─ docs/
+│  ├─ canon.md
+│  └─ anti_features.md
+├─ data/
+│  └─ sample_errors.csv
+├─ scripts/ # "кнопки" запуска/проверок (Windows)
+│  ├─ run_api.bat
+│  ├─ test.bat
+│  ├─ lint.bat
+│  └─ typecheck.bat
+├─ alembic.ini     # конфиг alembic (SQLite url)
+├─ pyproject.toml  # конфиг pytest/ruff/mypy
+├─ requirements.txt # зависимости
+└─ README.md
 
+```
 ---
 
 ## Быстрый старт (Windows + conda)
