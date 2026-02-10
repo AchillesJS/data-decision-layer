@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -16,12 +16,12 @@ class Error(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)          # уверенность 0..1
 
     # опционально (потом пригодится для UI / дебага / ссылок на данные)
-    example_ref: Optional[str] = None                  # путь/URL/хэш на пример
-    slice: Optional[Dict[str, Any]] = None             # метаданные среза (device/country/...)
+    example_ref: str | None = None                  # путь/URL/хэш на пример
+    slice: dict[str, Any] | None = None             # метаданные среза (device/country/...)
 
     @field_validator("example_ref")
     @classmethod
-    def empty_string_to_none(cls, v: Optional[str]) -> Optional[str]:
+    def empty_string_to_none(cls, v: str | None) -> str | None:
         # чтобы не тащить пустые строки как "значение"
         if v is not None and v.strip() == "":
             return None
