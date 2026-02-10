@@ -1,0 +1,11 @@
+sqlalchemy
+alembic
+pydantic
+pydantic-settings
+fastapi
+uvicorn
+pytest
+ruff
+mypy
+httpx
+rich
