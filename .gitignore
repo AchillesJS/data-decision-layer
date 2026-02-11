@@ -13,3 +13,5 @@ build/
 .idea/
 .vscode/
 .DS_Store
+# local databases
+*.db
