@@ -14,6 +14,7 @@ Rules:
 ## HypothesisStatus
 - draft -> active -> testing -> supported | refuted -> archived
 - draft -> archived
+- active/testing/supported/refuted -> archived
 Rules:
 - Non-DRAFT must have (statement) and at least one grounding: arguments OR evidence_error_ids OR scope.
 - SUPPORTED/REFUTED must have evidence_error_ids or scope.
@@ -22,6 +23,7 @@ Rules:
 - draft -> proposed -> approved -> in_progress -> done
 - draft -> cancelled
 - proposed/approved/in_progress -> cancelled
+- (draft|proposed|approved|in_progress|done|cancelled) -> archived
 Rules:
 - `hypothesis_id` may be null ONLY in DRAFT (exploratory action).
 - DONE requires completed_at; CANCELLED requires cancel_reason.
@@ -36,6 +38,7 @@ Rules:
 ## DataPotentialStatus
 - draft -> estimated -> stale
 - estimated -> stale
+- (draft|estimated|stale) -> archived
 Rules:
 - ESTIMATED requires: upper_bound_range, limiting_factors, assumptions, sample_size>0.
 - upper_bound_range: 0<=low<=high<=1 and high>=current (low may be < current).
