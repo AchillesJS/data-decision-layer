@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -27,14 +27,15 @@ def _naive_utc(dt: datetime) -> datetime:
 
     SQLite does not preserve tzinfo. We store naive UTC consistently.
     """
+
     if dt.tzinfo is None:
         return dt
     return dt.astimezone(UTC).replace(tzinfo=None)
 
 
 def _utcnow() -> datetime:
-    # Requirement: timestamps created as naive UTC.
-    return datetime.utcnow()
+    """Return naive UTC datetime (SQLite-friendly)."""
+    return datetime.now(UTC).replace(tzinfo=None)
 
 
 _STATUS_MODEL_BY_TYPE: dict[str, type] = {
@@ -68,9 +69,10 @@ class Repository:
     # -----------------
 
     @contextmanager
-    def session(self) -> Iterable[Session]:
+    def session(self) -> Iterator[Session]:
         """Write session: commit on success, rollback on error."""
-        s = self.SessionLocal()
+
+        s: Session = self.SessionLocal()
         try:
             yield s
             s.commit()
@@ -81,13 +83,14 @@ class Repository:
             s.close()
 
     @contextmanager
-    def read_session(self) -> Iterable[Session]:
+    def read_session(self) -> Iterator[Session]:
         """Read session: NEVER commit.
 
         SQLAlchemy may open an implicit transaction even for SELECTs.
         Calling rollback() on exit safely closes it.
         """
-        s = self.SessionLocal()
+
+        s: Session = self.SessionLocal()
         try:
             yield s
             s.rollback()
@@ -114,19 +117,19 @@ class Repository:
         return self._ids_exist_in_session(s, DataPotentialRow, ids)
 
     def errors_exist(self, ids: Sequence[str]) -> bool:
-        with self.read_session() as s:
+        with self.read_session() as s:  # type: Session
             return self.errors_exist_in_session(s, list(ids))
 
     def hypotheses_exist(self, ids: Sequence[str]) -> bool:
-        with self.read_session() as s:
+        with self.read_session() as s:  # type: Session
             return self.hypotheses_exist_in_session(s, list(ids))
 
     def actions_exist(self, ids: Sequence[str]) -> bool:
-        with self.read_session() as s:
+        with self.read_session() as s:  # type: Session
             return self.actions_exist_in_session(s, list(ids))
 
     def potentials_exist(self, ids: Sequence[str]) -> bool:
-        with self.read_session() as s:
+        with self.read_session() as s:  # type: Session
             return self.potentials_exist_in_session(s, list(ids))
 
     # -----------------
@@ -136,10 +139,13 @@ class Repository:
     def get_actions_in_session(self, s: Session, ids: list[str]) -> list[ActionRow]:
         if not ids:
             return []
-        return s.scalars(select(ActionRow).where(ActionRow.id.in_(list(ids)))).all()
+        action_rows: list[ActionRow] = list(
+            s.scalars(select(ActionRow).where(ActionRow.id.in_(list(ids)))).all()
+        )
+        return action_rows
 
     def get_actions(self, ids: Sequence[str]) -> list[ActionRow]:
-        with self.read_session() as s:
+        with self.read_session() as s:  # type: Session
             return self.get_actions_in_session(s, list(ids))
 
     def get_decision_record_in_session(
@@ -158,7 +164,7 @@ class Repository:
         return s.scalars(stmt).first()
 
     def get_decision_record(self, record_id: str) -> DecisionRecordRow | None:
-        with self.read_session() as s:
+        with self.read_session() as s:  # type: Session
             return self.get_decision_record_in_session(s, record_id)
 
     # -----------------
@@ -183,15 +189,15 @@ class Repository:
         return row
 
     def create_error(self, error: Error) -> ErrorRow:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             return self.create_error_in_session(s, error)
 
     def create_errors_in_session(self, s: Session, errors: list[Error]) -> list[ErrorRow]:
-        rows = [self.create_error_in_session(s, e) for e in errors]
+        rows: list[ErrorRow] = [self.create_error_in_session(s, e) for e in errors]
         return rows
 
     def create_errors(self, errors: list[Error]) -> list[ErrorRow]:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             return self.create_errors_in_session(s, errors)
 
     def create_hypothesis_in_session(
@@ -217,8 +223,12 @@ class Repository:
         if link_error_ids:
             # Ensure row is in session before wiring relationships.
             with s.no_autoflush:
-                errors = s.scalars(select(ErrorRow).where(ErrorRow.id.in_(list(link_error_ids)))).all()
-            row.errors.extend(errors)
+                error_rows: list[ErrorRow] = list(
+                    s.scalars(
+                        select(ErrorRow).where(ErrorRow.id.in_(list(link_error_ids)))
+                    ).all()
+                )
+            row.errors.extend(error_rows)
         return row
 
     def create_hypothesis(
@@ -227,7 +237,7 @@ class Repository:
         *,
         link_error_ids: list[str] | None = None,
     ) -> HypothesisRow:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             return self.create_hypothesis_in_session(s, hypothesis, link_error_ids=link_error_ids)
 
     def create_action_in_session(self, s: Session, action: Action) -> ActionRow:
@@ -249,7 +259,7 @@ class Repository:
         return row
 
     def create_action(self, action: Action) -> ActionRow:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             return self.create_action_in_session(s, action)
 
     def create_data_potential_in_session(self, s: Session, potential: DataPotential) -> DataPotentialRow:
@@ -277,7 +287,7 @@ class Repository:
         return row
 
     def create_data_potential(self, potential: DataPotential) -> DataPotentialRow:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             return self.create_data_potential_in_session(s, potential)
 
     def create_decision_record_in_session(
@@ -303,16 +313,22 @@ class Repository:
         s.add(row)
         with s.no_autoflush:
             if error_ids:
-                rows = s.scalars(select(ErrorRow).where(ErrorRow.id.in_(list(error_ids)))).all()
-                row.errors.extend(rows)
+                error_rows: list[ErrorRow] = list(
+                    s.scalars(select(ErrorRow).where(ErrorRow.id.in_(list(error_ids)))).all()
+                )
+                row.errors.extend(error_rows)
             if hypothesis_ids:
-                rows = s.scalars(
-                    select(HypothesisRow).where(HypothesisRow.id.in_(list(hypothesis_ids)))
-                ).all()
-                row.hypotheses.extend(rows)
+                hypothesis_rows: list[HypothesisRow] = list(
+                    s.scalars(
+                        select(HypothesisRow).where(HypothesisRow.id.in_(list(hypothesis_ids)))
+                    ).all()
+                )
+                row.hypotheses.extend(hypothesis_rows)
             if action_ids:
-                rows = s.scalars(select(ActionRow).where(ActionRow.id.in_(list(action_ids)))).all()
-                row.actions.extend(rows)
+                action_rows: list[ActionRow] = list(
+                    s.scalars(select(ActionRow).where(ActionRow.id.in_(list(action_ids)))).all()
+                )
+                row.actions.extend(action_rows)
 
         return row
 
@@ -325,7 +341,7 @@ class Repository:
         action_ids: list[str] | None = None,
         potential_id: str | None = None,
     ) -> DecisionRecordRow:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             return self.create_decision_record_in_session(
                 s,
                 record,
@@ -380,19 +396,19 @@ class Repository:
         row.updated_at = _utcnow()
 
     def archive_error(self, entity_id: str) -> None:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             self.archive_error_in_session(s, entity_id)
 
     def archive_hypothesis(self, entity_id: str) -> None:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             self.archive_hypothesis_in_session(s, entity_id)
 
     def archive_action(self, entity_id: str) -> None:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             self.archive_action_in_session(s, entity_id)
 
     def archive_data_potential(self, entity_id: str) -> None:
-        with self.session() as s:
+        with self.session() as s:  # type: Session
             self.archive_data_potential_in_session(s, entity_id)
 
     # -----------------
@@ -402,5 +418,7 @@ class Repository:
     def _ids_exist_in_session(self, s: Session, model: type, ids: Sequence[str]) -> bool:
         if not ids:
             return True
-        found = s.scalars(select(model.id).where(model.id.in_(list(ids)))).all()  # type: ignore[attr-defined]
+        # SQLAlchemy models have an `.id` mapped attribute at runtime.
+        col = model.id  # type: ignore[attr-defined]
+        found: list[str] = list(s.scalars(select(col).where(col.in_(list(ids)))).all())
         return len(found) == len(set(ids))

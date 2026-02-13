@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import create_engine, func, select
@@ -41,7 +41,7 @@ def _seed_basic(repo: Repository):
         status=ActionStatus.PROPOSED,
     )
 
-    with repo.session() as s:
+    with repo.session() as s:  # type: Session
         repo.create_error_in_session(s, e)
         repo.create_hypothesis_in_session(s, h)
         repo.create_action_in_session(s, a)
@@ -52,7 +52,7 @@ def _seed_basic(repo: Repository):
 def test_decision_record_rejects_missing_action_id(repo: Repository):
     e, h, _a = _seed_basic(repo)
 
-    missing_action_id = "00000000-0000-0000-0000-000000000000"
+    missing_action_id: UUID = uuid4()
     record = DecisionRecord(
         made_by="u",
         decision=DecisionType.PROCEED,
@@ -79,7 +79,7 @@ def test_decision_record_rejects_action_hypothesis_mismatch(repo: Repository):
         cost=CostEstimate(time_hours=1.0),
         status=ActionStatus.PROPOSED,
     )
-    with repo.session() as s:
+    with repo.session() as s:  # type: Session
         repo.create_error_in_session(s, e)
         repo.create_hypothesis_in_session(s, h1)
         repo.create_hypothesis_in_session(s, h2)
@@ -121,14 +121,14 @@ def test_action_non_draft_requires_hypothesis(repo: Repository):
 def test_archive_action_use_case_sets_status_and_updated_at(repo: Repository):
     _e, _h, a = _seed_basic(repo)
 
-    with repo.read_session() as s:
+    with repo.read_session() as s:  # type: Session
         row_before = s.get(ActionRow, str(a.id))
         assert row_before is not None
         before_updated = row_before.updated_at
 
     archive_action_use_case(repo, str(a.id))
 
-    with repo.read_session() as s:
+    with repo.read_session() as s:  # type: Session
         row_after = s.get(ActionRow, str(a.id))
         assert row_after is not None
         assert row_after.status == "archived"
@@ -149,7 +149,7 @@ def test_hypothesis_rejects_missing_error_id(repo: Repository):
     with pytest.raises(HypothesisIntegrityError):
         create_hypothesis_use_case(repo, h, error_ids=[str(e.id), missing])
 
-    with repo.read_session() as s:
+    with repo.read_session() as s:  # type: Session
         count = s.scalar(select(func.count()).select_from(HypothesisRow))
         assert count == 0
 
@@ -161,13 +161,14 @@ def test_get_decision_record_in_session_works(repo: Repository):
         made_by="u",
         decision=DecisionType.PROCEED,
         confidence=0.7,
-        rationale="Proceed with plan.",
+        rationale="Proceed now.",
         hypothesis_ids=[h.id],
         action_ids=[a.id],
         error_ids=[e.id],
     )
 
-    with repo.session() as s:
+    # Persist through repository (outside use-case is fine for test)
+    with repo.session() as s:  # type: Session
         repo.create_decision_record_in_session(
             s,
             record,
@@ -177,7 +178,7 @@ def test_get_decision_record_in_session_works(repo: Repository):
             potential_id=None,
         )
 
-    with repo.read_session() as s:
+    with repo.read_session() as s:  # type: Session
         row = repo.get_decision_record_in_session(s, str(record.id))
         assert row is not None
         assert len(row.errors) == 1
@@ -194,7 +195,7 @@ def test_read_only_session_does_not_commit(repo: Repository, monkeypatch: pytest
 
     monkeypatch.setattr(Session, "commit", _commit, raising=True)
 
-    with repo.read_session() as s:
+    with repo.read_session() as s:  # type: Session
         s.execute(select(1)).all()
 
     assert called["commit"] is False
@@ -213,12 +214,13 @@ def test_use_case_does_not_call_wrapper_create_decision_record(repo: Repository,
         made_by="u",
         decision=DecisionType.PROCEED,
         confidence=0.6,
-        rationale="Looks good now.",
+        rationale="Ok to proceed",
         hypothesis_ids=[h.id],
         action_ids=[a.id],
         error_ids=[e.id],
     )
 
+    # Should not raise RuntimeError from wrapper
     create_decision_record_use_case(repo, record)
 
 
@@ -228,13 +230,13 @@ def test_use_case_does_not_call_wrapper_create_action(repo: Repository, monkeypa
 
     monkeypatch.setattr(Repository, "create_action", _boom, raising=True)
 
-    h = Hypothesis(title="Hypothesis", statement=None)
+    h = Hypothesis(title="Hyp", statement=None)
     repo.create_hypothesis(h)
 
     a = Action(
         hypothesis_id=h.id,
-        name="ActionOne",
-        description="Detailed description.",
+        name="Act",
+        description="Do this action.",
         risk_if_false=RiskLevel.LOW,
         cost=CostEstimate(time_hours=1.0),
         status=ActionStatus.PROPOSED,

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
+
 from core.decision import DecisionRecord
 from store.repository import Repository
+
+_SESSION_TYPE = Session
 
 
 class UseCaseIntegrityError(ValueError):
@@ -21,12 +25,13 @@ def create_decision_record_use_case(repo: Repository, record: DecisionRecord) ->
       - All checks + write run in a single write Session (TOCTOU closed).
       - Use-cases must call *_in_session methods only while inside repo.session().
     """
+
     error_ids = [str(x) for x in record.error_ids]
     hypothesis_ids = [str(x) for x in record.hypothesis_ids]
     action_ids = [str(x) for x in record.action_ids]
     potential_id = str(record.potential_id) if record.potential_id is not None else None
 
-    with repo.session() as s:
+    with repo.session() as s:  # type: Session
         # (R1) existence checks
         if not repo.errors_exist_in_session(s, error_ids):
             raise UseCaseIntegrityError("DecisionRecord references missing error_id")

@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
+
 from store.repository import Repository
 from use_cases.transitions import ensure_transition
+
+_SESSION_TYPE = Session
 
 
 class NotFoundError(ValueError):
@@ -21,7 +25,8 @@ def _archive_entity_use_case(
       2) ensure_transition(entity_type, from, archived)
       3) archive via store
     """
-    with repo.session() as s:
+
+    with repo.session() as s:  # type: Session
         current = repo.get_status_in_session(s, entity_type, entity_id)
         if current is None:
             raise NotFoundError(f"{entity_type} not found")

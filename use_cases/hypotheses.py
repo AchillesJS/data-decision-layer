@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
+
 from core.hypothesis import Hypothesis
 from store.repository import Repository
+
+_SESSION_TYPE = Session
 
 
 class UseCaseIntegrityError(ValueError):
@@ -21,9 +25,10 @@ def create_hypothesis_use_case(
 
     All checks + write happen in ONE transaction.
     """
+
     ids: list[str] = list(error_ids) if error_ids else []
 
-    with repo.session() as s:
+    with repo.session() as s:  # type: Session
         if ids and not repo.errors_exist_in_session(s, ids):
             raise UseCaseIntegrityError("Hypothesis references missing error_id")
 
