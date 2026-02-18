@@ -1,25 +1,26 @@
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
-
 from core.decision import DecisionRecord
 from store.repository import Repository
-
-_SESSION_TYPE = Session
 
 
 class UseCaseIntegrityError(ValueError):
     """Raised when referential or cross-reference rules are violated."""
 
 
-def create_decision_record_use_case(repo: Repository, record: DecisionRecord) -> None:
-    """Create a DecisionRecord with integrity checks in ONE transaction.
+def create_decision_record_use_case(
+    repo: Repository, tenant_id: str, record: DecisionRecord
+) -> None:
+    """Create a DecisionRecord with integrity checks in ONE tenant and ONE transaction.
 
     Enforce:
-      (R1) All referenced IDs must exist.
+      (R1) All referenced IDs must exist *inside tenant*.
       (R2) For each action_id:
            if Action.hypothesis_id is not None,
            it must be included in provided hypothesis_ids.
+      (R3) Anti-cross-tenant:
+           any referenced IDs must belong to the same tenant_id.
+           (Implemented by tenant-scoped reads/existence checks.)
 
     IMPORTANT:
       - All checks + write run in a single write Session (TOCTOU closed).
@@ -31,19 +32,21 @@ def create_decision_record_use_case(repo: Repository, record: DecisionRecord) ->
     action_ids = [str(x) for x in record.action_ids]
     potential_id = str(record.potential_id) if record.potential_id is not None else None
 
-    with repo.session() as s:  # type: Session
-        # (R1) existence checks
-        if not repo.errors_exist_in_session(s, error_ids):
+    with repo.session() as s: 
+        # (R1)+(R3) existence checks inside tenant
+        if not repo.errors_exist_in_session(s, tenant_id, error_ids):
             raise UseCaseIntegrityError("DecisionRecord references missing error_id")
-        if not repo.hypotheses_exist_in_session(s, hypothesis_ids):
+        if not repo.hypotheses_exist_in_session(s, tenant_id, hypothesis_ids):
             raise UseCaseIntegrityError("DecisionRecord references missing hypothesis_id")
-        if not repo.actions_exist_in_session(s, action_ids):
+        if not repo.actions_exist_in_session(s, tenant_id, action_ids):
             raise UseCaseIntegrityError("DecisionRecord references missing action_id")
-        if potential_id is not None and not repo.potentials_exist_in_session(s, [potential_id]):
+        if potential_id is not None and not repo.potentials_exist_in_session(
+            s, tenant_id, [potential_id]
+        ):
             raise UseCaseIntegrityError("DecisionRecord references missing potential_id")
 
-        # (R2) action -> hypothesis consistency
-        actions = repo.get_actions_in_session(s, action_ids)
+        # (R2) action -> hypothesis consistency (inside tenant)
+        actions = repo.get_actions_in_session(s, tenant_id, action_ids)
         hset = set(hypothesis_ids)
         for a in actions:
             if a.hypothesis_id is not None and a.hypothesis_id not in hset:
@@ -53,6 +56,7 @@ def create_decision_record_use_case(repo: Repository, record: DecisionRecord) ->
 
         repo.create_decision_record_in_session(
             s,
+            tenant_id,
             record,
             error_ids=error_ids,
             hypothesis_ids=hypothesis_ids,

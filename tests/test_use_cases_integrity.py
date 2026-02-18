@@ -19,6 +19,8 @@ from use_cases.hypotheses import UseCaseIntegrityError as HypothesisIntegrityErr
 from use_cases.hypotheses import create_hypothesis_use_case
 from use_cases.transitions import ForbiddenTransitionError, ensure_transition
 
+_TENANT = "t"
+
 
 @pytest.fixture()
 def repo() -> Repository:
@@ -28,8 +30,9 @@ def repo() -> Repository:
     return Repository(engine=engine, SessionLocal=SessionLocal)
 
 
-def _seed_basic(repo: Repository):
+def _seed_basic(repo: Repository, tenant_id: str):
     """Create one error + one hypothesis + one action in one txn."""
+
     e = Error(y_true="cat", y_pred="dog", confidence=0.7)
     h = Hypothesis(title="Lighting", statement=None)
     a = Action(
@@ -42,15 +45,15 @@ def _seed_basic(repo: Repository):
     )
 
     with repo.session() as s:  # type: Session
-        repo.create_error_in_session(s, e)
-        repo.create_hypothesis_in_session(s, h)
-        repo.create_action_in_session(s, a)
+        repo.create_error_in_session(s, tenant_id, e)
+        repo.create_hypothesis_in_session(s, tenant_id, h)
+        repo.create_action_in_session(s, tenant_id, a)
 
     return e, h, a
 
 
 def test_decision_record_rejects_missing_action_id(repo: Repository):
-    e, h, _a = _seed_basic(repo)
+    e, h, _a = _seed_basic(repo, _TENANT)
 
     missing_action_id: UUID = uuid4()
     record = DecisionRecord(
@@ -64,7 +67,7 @@ def test_decision_record_rejects_missing_action_id(repo: Repository):
     )
 
     with pytest.raises(UseCaseIntegrityError):
-        create_decision_record_use_case(repo, record)
+        create_decision_record_use_case(repo, _TENANT, record)
 
 
 def test_decision_record_rejects_action_hypothesis_mismatch(repo: Repository):
@@ -80,10 +83,10 @@ def test_decision_record_rejects_action_hypothesis_mismatch(repo: Repository):
         status=ActionStatus.PROPOSED,
     )
     with repo.session() as s:  # type: Session
-        repo.create_error_in_session(s, e)
-        repo.create_hypothesis_in_session(s, h1)
-        repo.create_hypothesis_in_session(s, h2)
-        repo.create_action_in_session(s, a)
+        repo.create_error_in_session(s, _TENANT, e)
+        repo.create_hypothesis_in_session(s, _TENANT, h1)
+        repo.create_hypothesis_in_session(s, _TENANT, h2)
+        repo.create_action_in_session(s, _TENANT, a)
 
     record = DecisionRecord(
         made_by="u",
@@ -95,7 +98,7 @@ def test_decision_record_rejects_action_hypothesis_mismatch(repo: Repository):
         error_ids=[e.id],
     )
     with pytest.raises(UseCaseIntegrityError):
-        create_decision_record_use_case(repo, record)
+        create_decision_record_use_case(repo, _TENANT, record)
 
 
 def test_forbidden_transition_rejected():
@@ -115,18 +118,18 @@ def test_action_non_draft_requires_hypothesis(repo: Repository):
     # Bypass core validation by mutating (use-case must still reject).
     a.status = ActionStatus.PROPOSED
     with pytest.raises(UseCaseValidationError):
-        create_action_use_case(repo, a)
+        create_action_use_case(repo, _TENANT, a)
 
 
 def test_archive_action_use_case_sets_status_and_updated_at(repo: Repository):
-    _e, _h, a = _seed_basic(repo)
+    _e, _h, a = _seed_basic(repo, _TENANT)
 
     with repo.read_session() as s:  # type: Session
         row_before = s.get(ActionRow, str(a.id))
         assert row_before is not None
         before_updated = row_before.updated_at
 
-    archive_action_use_case(repo, str(a.id))
+    archive_action_use_case(repo, _TENANT, str(a.id))
 
     with repo.read_session() as s:  # type: Session
         row_after = s.get(ActionRow, str(a.id))
@@ -141,13 +144,13 @@ def test_archive_action_transition_allowed():
 
 def test_hypothesis_rejects_missing_error_id(repo: Repository):
     e = Error(y_true="a", y_pred="b", confidence=0.5)
-    repo.create_error(e)
+    repo.create_error(_TENANT, e)
 
     h = Hypothesis(title="Strict hypothesis", statement=None)
     missing = str(uuid4())
 
     with pytest.raises(HypothesisIntegrityError):
-        create_hypothesis_use_case(repo, h, error_ids=[str(e.id), missing])
+        create_hypothesis_use_case(repo, _TENANT, h, error_ids=[str(e.id), missing])
 
     with repo.read_session() as s:  # type: Session
         count = s.scalar(select(func.count()).select_from(HypothesisRow))
@@ -155,7 +158,7 @@ def test_hypothesis_rejects_missing_error_id(repo: Repository):
 
 
 def test_get_decision_record_in_session_works(repo: Repository):
-    e, h, a = _seed_basic(repo)
+    e, h, a = _seed_basic(repo, _TENANT)
 
     record = DecisionRecord(
         made_by="u",
@@ -171,6 +174,7 @@ def test_get_decision_record_in_session_works(repo: Repository):
     with repo.session() as s:  # type: Session
         repo.create_decision_record_in_session(
             s,
+            _TENANT,
             record,
             error_ids=[str(e.id)],
             hypothesis_ids=[str(h.id)],
@@ -179,14 +183,16 @@ def test_get_decision_record_in_session_works(repo: Repository):
         )
 
     with repo.read_session() as s:  # type: Session
-        row = repo.get_decision_record_in_session(s, str(record.id))
+        row = repo.get_decision_record_in_session(s, _TENANT, str(record.id))
         assert row is not None
         assert len(row.errors) == 1
         assert len(row.hypotheses) == 1
         assert len(row.actions) == 1
 
 
-def test_read_only_session_does_not_commit(repo: Repository, monkeypatch: pytest.MonkeyPatch):
+def test_read_only_session_does_not_commit(
+    repo: Repository, monkeypatch: pytest.MonkeyPatch
+):
     called = {"commit": False}
 
     def _commit(self: Session):  # noqa: ANN001
@@ -201,7 +207,9 @@ def test_read_only_session_does_not_commit(repo: Repository, monkeypatch: pytest
     assert called["commit"] is False
 
 
-def test_use_case_does_not_call_wrapper_create_decision_record(repo: Repository, monkeypatch: pytest.MonkeyPatch):
+def test_use_case_does_not_call_wrapper_create_decision_record(
+    repo: Repository, monkeypatch: pytest.MonkeyPatch
+):
     """Fail if use-case calls the non-session wrapper that opens a new session."""
 
     def _boom(*_args, **_kwargs):  # noqa: ANN001
@@ -209,7 +217,7 @@ def test_use_case_does_not_call_wrapper_create_decision_record(repo: Repository,
 
     monkeypatch.setattr(Repository, "create_decision_record", _boom, raising=True)
 
-    e, h, a = _seed_basic(repo)
+    e, h, a = _seed_basic(repo, _TENANT)
     record = DecisionRecord(
         made_by="u",
         decision=DecisionType.PROCEED,
@@ -221,17 +229,19 @@ def test_use_case_does_not_call_wrapper_create_decision_record(repo: Repository,
     )
 
     # Should not raise RuntimeError from wrapper
-    create_decision_record_use_case(repo, record)
+    create_decision_record_use_case(repo, _TENANT, record)
 
 
-def test_use_case_does_not_call_wrapper_create_action(repo: Repository, monkeypatch: pytest.MonkeyPatch):
+def test_use_case_does_not_call_wrapper_create_action(
+    repo: Repository, monkeypatch: pytest.MonkeyPatch
+):
     def _boom(*_args, **_kwargs):  # noqa: ANN001
         raise RuntimeError("Do not call non-session create_action inside use-case")
 
     monkeypatch.setattr(Repository, "create_action", _boom, raising=True)
 
     h = Hypothesis(title="Hyp", statement=None)
-    repo.create_hypothesis(h)
+    repo.create_hypothesis(_TENANT, h)
 
     a = Action(
         hypothesis_id=h.id,
@@ -242,14 +252,16 @@ def test_use_case_does_not_call_wrapper_create_action(repo: Repository, monkeypa
         status=ActionStatus.PROPOSED,
     )
 
-    create_action_use_case(repo, a)
+    create_action_use_case(repo, _TENANT, a)
 
 
-def test_use_case_does_not_call_wrapper_archive_action(repo: Repository, monkeypatch: pytest.MonkeyPatch):
+def test_use_case_does_not_call_wrapper_archive_action(
+    repo: Repository, monkeypatch: pytest.MonkeyPatch
+):
     def _boom(*_args, **_kwargs):  # noqa: ANN001
         raise RuntimeError("Do not call non-session archive_action inside use-case")
 
     monkeypatch.setattr(Repository, "archive_action", _boom, raising=True)
 
-    _e, _h, a = _seed_basic(repo)
-    archive_action_use_case(repo, str(a.id))
+    _e, _h, a = _seed_basic(repo, _TENANT)
+    archive_action_use_case(repo, _TENANT, str(a.id))

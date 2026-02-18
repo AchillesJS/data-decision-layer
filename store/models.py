@@ -81,6 +81,7 @@ class ErrorRow(Base):
     __tablename__ = "errors"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -103,6 +104,8 @@ class ErrorRow(Base):
     )
 
     __table_args__ = (
+        Index("ix_errors_tenant_id_status", "tenant_id", "status"),
+        Index("ix_errors_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_errors_created_at", "created_at"),
     )
 
@@ -111,6 +114,7 @@ class HypothesisRow(Base):
     __tablename__ = "hypotheses"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -133,6 +137,8 @@ class HypothesisRow(Base):
     )
 
     __table_args__ = (
+        Index("ix_hypotheses_tenant_id_status", "tenant_id", "status"),
+        Index("ix_hypotheses_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_hypotheses_created_at", "created_at"),
     )
 
@@ -141,6 +147,7 @@ class ActionRow(Base):
     __tablename__ = "actions"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -161,6 +168,8 @@ class ActionRow(Base):
     )
 
     __table_args__ = (
+        Index("ix_actions_tenant_id_status", "tenant_id", "status"),
+        Index("ix_actions_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_actions_created_at", "created_at"),
     )
 
@@ -169,6 +178,7 @@ class DataPotentialRow(Base):
     __tablename__ = "data_potentials"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
@@ -188,6 +198,8 @@ class DataPotentialRow(Base):
     decision_records: Mapped[list[DecisionRecordRow]] = relationship(back_populates="potential")
 
     __table_args__ = (
+        Index("ix_data_potentials_tenant_id_status", "tenant_id", "status"),
+        Index("ix_data_potentials_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_data_potentials_created_at", "created_at"),
     )
 
@@ -196,6 +208,7 @@ class DecisionRecordRow(Base):
     __tablename__ = "decision_records"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     # TODO: add indexes for project_id/model_id/run_id when they exist in core
 
@@ -205,7 +218,9 @@ class DecisionRecordRow(Base):
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    potential_id: Mapped[str | None] = mapped_column(ForeignKey("data_potentials.id"), nullable=True)
+    potential_id: Mapped[str | None] = mapped_column(
+        ForeignKey("data_potentials.id"), nullable=True
+    )
     potential: Mapped[DataPotentialRow | None] = relationship(back_populates="decision_records")
 
     errors: Mapped[list[ErrorRow]] = relationship(
@@ -219,5 +234,6 @@ class DecisionRecordRow(Base):
     )
 
     __table_args__ = (
+        Index("ix_decision_records_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_decision_records_created_at", "created_at"),
     )

@@ -1,3 +1,0 @@
-y_true,y_pred,confidence,slice_json,example_ref
-cat,dog,0.72,"{""device"":""iphone"",""country"":""CN""}",/examples/1.jpg
-car,bus,0.33,"{""device"":""android"",""country"":""RU""}",/examples/2.jpg

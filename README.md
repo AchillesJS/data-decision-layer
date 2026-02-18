@@ -21,7 +21,8 @@ Data Decision Layer — это Decision Workspace for ML data decisions.
 
 Канон продукта: `docs/canon.md`  
 Never/анти-фичи: `docs/anti_features.md`  
-State machine (статусы/переходы): `docs/state_machine.md`
+State machine (статусы/переходы): `docs/state_machine.md`  
+API v1 (FastAPI): `docs/api_v1.md`
 
 ---
 
@@ -36,6 +37,8 @@ Data → Train → Evaluate → DECISION WORKSPACE → Data actions → Retrain
 
 ## Статус проекта
 
+Проект находится в состоянии **backend MVP**: есть доменная модель, store, use-cases и PUBLIC REST API v1.
+
 Сейчас настроены базовые вещи, чтобы разработка шла без хаоса:
 
 - репозиторий и структура проекта
@@ -44,11 +47,11 @@ Data → Train → Evaluate → DECISION WORKSPACE → Data actions → Retrain
 - тесты (pytest)
 - линтер (ruff)
 - проверка типов (mypy)
-- скрипты “одной кнопкой” (scripts/*.bat)
-- sample dataset (data/sample_errors.csv)
+- скрипты запуска/проверок (Windows)
 - skeleton миграций Alembic (store/migrations) + alembic.ini
+- PUBLIC REST API v1 (FastAPI) с multi-tenant
 
-И главное: уже оформлено ядро продукта и начата “склейка” слоёв:
+И главное: оформлено ядро продукта и “склейка” слоёв.
 
 ### Core (готово как доменные контракты)
 В `core/` описаны доменные сущности (Pydantic) + статусы + инварианты:
@@ -58,25 +61,23 @@ Data → Train → Evaluate → DECISION WORKSPACE → Data actions → Retrain
 - DecisionRecord
 - DataPotential
 
-### Store (в работе, но уже есть базовая реализация)
+### Store (готово для MVP)
 В `store/` есть:
 - `store/models.py` — ORM модели
-- `store/repository.py` — репозиторий и операции чтения/записи (включая session-aware методы)
+- `store/repository.py` — репозиторий и операции чтения/записи (tenant-aware)
 
-### Use cases (появились и уже используются)
+### Use cases (готово и используется API)
 `use_cases/` — слой orchestration, где живут:
-- проверки ссылочной целостности
+- проверки ссылочной целостности (включая tenant boundaries)
 - проверки переходов статусов по `docs/state_machine.md`
 - операции “в одну транзакцию”
-- правила “Action ↔ Hypothesis” и т.п.
 
-### Tests (расширены)
-Кроме тестов core добавлен тест на целостность use-cases:
-- `tests/test_core_objects.py`
-- `tests/test_use_cases_integrity.py`
-
-На этом этапе мы не “подготавливаемся абстрактно” — мы уже на треке MVP:
-ядро описано, хранилище и use_cases заведены, тесты есть, документация фиксирует границы.
+### API v1 (готово как thin transport)
+`api/` — FastAPI слой **без бизнес-логики**, только транспорт:
+- tenant_id обязателен через заголовок `X-Tenant-Id` (кроме `/health`)
+- наружу возвращаются только Pydantic DTO (никаких ORM entities)
+- ошибки домена маппятся в HTTP (`400/404/409/422`)
+- smoke тесты: `tests/test_api_smoke.py`
 
 ---
 
@@ -88,14 +89,14 @@ Data → Train → Evaluate → DECISION WORKSPACE → Data actions → Retrain
 - State machine: `docs/state_machine.md`
 - Любое изменение смысла продукта — сначала в docs, потом в код.
 
-### Слойность (важное уточнение по текущей архитектуре)
+### Слойность
 - `core/` — доменная логика и инварианты (без DB, без API)
 - `store/` — хранение (DB/репозитории/миграции), без бизнес-логики
 - `use_cases/` — ЕДИНСТВЕННОЕ место для orchestration/проверок/переходов статусов
 - `api/` — транспорт (FastAPI)
 - `ui/` — интерфейс (позже)
 
-Бизнес-логики в `api/` и `ui/` быть не должно.
+Бизнес-логики в `api/` и `ui/` быть не должно.  
 Бизнес-логики в `store/` быть не должно (только persistence и маппинг).
 
 ### Каждое изменение = проверка
@@ -106,9 +107,26 @@ Data → Train → Evaluate → DECISION WORKSPACE → Data actions → Retrain
 
 ---
 
-## Структура репозитория (актуально по текущим файлам)
+## Структура репозитория (актуально)
 ```text
 data-decision-layer/
+├─ api/   # FastAPI слой (тонкий транспорт)
+│  ├─ __init__.py
+│  ├─ main.py
+│  ├─ deps.py          # get_repo, get_tenant_id (X-Tenant-Id)
+│  ├─ exceptions.py    # domain -> HTTP mapping
+│  ├─ schemas/
+│  │  ├─ __init__.py
+│  │  ├─ error.py
+│  │  ├─ hypothesis.py
+│  │  ├─ action.py
+│  │  └─ decision.py
+│  └─ routers/
+│     ├─ __init__.py
+│     ├─ errors.py
+│     ├─ hypotheses.py
+│     ├─ actions.py
+│     └─ decisions.py
 ├─ core/  # доменные объекты (Pydantic), статусы, инварианты
 │  ├─ __init__.py
 │  ├─ error.py
@@ -120,42 +138,43 @@ data-decision-layer/
 │  ├─ __init__.py
 │  ├─ models.py
 │  ├─ repository.py
-│  └─ migrations/ # Alembic init
+│  └─ migrations/ # Alembic
 │     ├─ env.py
 │     ├─ script.py.mako
 │     └─ versions/
 ├─ use_cases/ # orchestration + проверки + переходы статусов (строго здесь)
 │  ├─ __init__.py
 │  ├─ transitions.py
+│  ├─ errors.py
 │  ├─ hypotheses.py
 │  ├─ actions.py
 │  ├─ decision_records.py
 │  └─ archive.py
-├─ api/   # FastAPI слой (транспорт)
-│  └─ main.py
-├─ ui/    # UI (позже)
-│  └─ app.py
 ├─ tests/ # pytest
 │  ├─ __init__.py
 │  ├─ test_core_objects.py
-│  └─ test_use_cases_integrity.py
+│  ├─ test_use_cases_integrity.py
+│  └─ test_api_smoke.py
 ├─ docs/
 │  ├─ canon.md
 │  ├─ anti_features.md
-│  └─ state_machine.md
+│  ├─ state_machine.md
+│  └─ api_v1.md
 ├─ data/
 │  ├─ sample_errors.csv
-│  └─ app.db   # локальная sqlite БД (НЕ коммитить)
+│  └─ ddw.db   # локальная sqlite БД (НЕ коммитить, *.db в .gitignore)
 ├─ scripts/ # "кнопки" запуска/проверок (Windows)
 │  ├─ run_api.bat
 │  ├─ test.bat
 │  ├─ lint.bat
-│  └─ typecheck.bat
-├─ alembic.ini      # конфиг alembic (SQLite url)
-├─ pyproject.toml   # конфиг pytest/ruff/mypy
-├─ requirements.txt # зависимости
+│  ├─ typecheck.bat
+│  └─ dev.ps1        # PowerShell: env + migrations + uvicorn
+├─ alembic.ini
+├─ pyproject.toml
+├─ requirements.txt
 └─ README.md
 ```
+
 ---
 
 ## Быстрый старт (Windows + conda)
@@ -164,137 +183,227 @@ data-decision-layer/
 Лучше всего: Anaconda Prompt или терминал в VS Code.
 
 Перейти в папку проекта:
+```bat
 cd %USERPROFILE%\Desktop\data-decision-layer
+```
 
 1) Активировать окружение  
 Если окружение уже создано:
+```bat
 conda activate decision
+```
 
 Если окружения ещё нет (на другом ПК):
+```bat
 conda create -n decision python=3.11 -y
 conda activate decision
+```
 
 2) Установить зависимости
+```bat
 pip install -r requirements.txt
+```
 
-________________________________________
+---
+
+## Запуск API (Windows PowerShell)
+
+### Вариант 1 — вручную (просто и прозрачно)
+
+Из корня репозитория:
+
+```powershell
+# 1) указать локальную sqlite DB (рекомендуем хранить в data/)
+$env:DDW_DB_URL = "sqlite+pysqlite:///./data/ddw.db"
+
+# 2) накатить миграции
+python -m alembic upgrade head
+
+# 3) поднять API
+uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+Проверка:
+- `GET http://127.0.0.1:8000/health` → `{"status":"ok"}`
+- Swagger UI: `http://127.0.0.1:8000/docs`
+
+Важно:
+- для всех `/api/v1/*` нужен заголовок `X-Tenant-Id` (кроме `/health`)
+
+### Вариант 2 — одной командой (scripts/dev.ps1)
+
+```powershell
+.\scripts\dev.ps1
+```
+
+Если нужен другой порт:
+```powershell
+.\scripts\dev.ps1 -Port 8001
+```
+
+
+### Частая причина 422: enum-поля (фиксированные значения)
+
+Если ты вручную шлёшь JSON (PowerShell/curl), помни: некоторые поля принимают **только** значения из enum.
+
+- `Action.risk_if_false`: `low | medium | high | critical`
+- `Action.status`: `draft | proposed | approved | in_progress | done | cancelled`
+  - если создаёшь Action **без** `hypothesis_id` — ставь `status="draft"`, иначе словишь валидацию/конфликт
+- `DecisionRecord.decision`: `proceed | defer | reject`
+
+Подсказка: самый надёжный способ — открыть `http://127.0.0.1:8000/docs` и брать payload прямо из схем.
+
+
+---
+
 ## Команды проекта (одна кнопка)
 
 Тесты:
+```bat
 scripts\test.bat
+```
 
 Линтер (ruff):
+```bat
 scripts\lint.bat
+```
 
 Типы (mypy):
+```bat
 scripts\typecheck.bat
+```
 
-Запуск API:
+Запуск API (bat):
+```bat
 scripts\run_api.bat
+```
 
-________________________________________
+Запуск API (PowerShell):
+```powershell
+.\scripts\dev.ps1
+```
+
+---
+
 ## Что означает “зелёный проект”
 
 Проект считается “готов к работе”, если:
-1) scripts\test.bat — проходит
-2) scripts\lint.bat — без ошибок
-3) scripts\typecheck.bat — без ошибок
-4) API запускается (scripts\run_api.bat)
+1) `pytest -q` — проходит
+2) `ruff check .` — без ошибок
+3) `mypy .` — без ошибок
+4) API запускается и отвечает на `/health`
 
-________________________________________
+---
+
 ## Git: как работать (простая дисциплина)
 
 Проверить состояние:
+```bat
 git status
+```
 
 Посмотреть что изменилось:
+```bat
 git diff
+```
 
 Добавить все изменения в коммит:
+```bat
 git add .
+```
 
 Закоммитить:
+```bat
 git commit -m "feat: short description"
+```
 
 Отправить на GitHub:
+```bat
 git push
+```
 
-________________________________________
-## Alembic (миграции) — что это и как использовать (когда начнём DB полноценно)
+---
 
-Сейчас Alembic инициализирован (рельсы готовы).
+## Alembic (миграции) — правила
 
-Где конфиг:
-alembic.ini
+- DB URL берётся из env-var `DDW_DB_URL`
+- локальные `*.db` не коммитим (см. `.gitignore`)
+- “источник истины” по схеме: `store/models.py` + миграции Alembic
 
-Сейчас настроено:
-sqlalchemy.url = sqlite:///data/app.db
+Основные команды:
+```powershell
+python -m alembic current
+python -m alembic upgrade head
+```
 
-Важно:
-- локальную БД `data/app.db` НЕ коммитим в git
-- пока схема активно меняется — миграции используем аккуратно (минимум автогенерации без проверки)
+---
 
-Когда фиксируем DB слой:
-• добавляем/уточняем store/models.py
-• подключаем Base.metadata в store/migrations/env.py
-• делаем:
-  - alembic revision --autogenerate -m "create tables"
-  - alembic upgrade head
-
-________________________________________
 ## Sample data
 
-Файл: data/sample_errors.csv  
+Файл: `data/sample_errors.csv`  
 Он нужен, чтобы проверять ingest/поток без внешних интеграций.
 
 Формат колонок:
-• y_true
-• y_pred
-• confidence
-• slice_json (JSON строка с метаданными среза)
-• example_ref (ссылка/путь/хэш на пример)
+- y_true
+- y_pred
+- confidence
+- slice_json (JSON строка с метаданными среза)
+- example_ref (ссылка/путь/хэш на пример)
 
-________________________________________
+---
+
 ## Частые проблемы и быстрые решения
 
-1) ModuleNotFoundError: No module named 'core'  
-Решение: убедись, что есть файлы:
-• core/__init__.py  
-• tests/__init__.py  
-И запускай тесты из корня репо.
+1) `ModuleNotFoundError: No module named 'core'`  
+Решение: запускай тесты/uvicorn **из корня репо**.
 
-2) ruff ругается на авто-сгенерированный файл Alembic  
+2) PowerShell: `export` не работает  
+Решение: в PowerShell задавай env так:
+```powershell
+$env:DDW_DB_URL = "sqlite+pysqlite:///./data/ddw.db"
+```
+
+3) `Uvicorn: Attribute "app" not found in module "api.main"`  
+Проверь, что в `api/main.py` есть:
+```python
+app = FastAPI()
+```
+4) ruff ругается на авто-сгенерированный файл Alembic  
 Обычно лечится автофиксом:
 ruff check . --fix
 
-3) Conda не в PATH  
+5) Conda не в PATH  
 Решение: запускай команды из Anaconda Prompt.
 Там conda уже доступна.
 
-4) Uvicorn: Attribute "app" not found in module "api.main"  
-Проверь, что в api/main.py есть переменная:
-app = FastAPI()
-И запуск:
-uvicorn api.main:app --reload
+6) `Internal Server Error` на запись в БД  
+Чаще всего: не накатили миграции:
+```powershell
+python -m alembic upgrade head
+```
 
-________________________________________
+---
+
 ## Как мы продолжаем MVP (текущее направление)
 
 Мы идём по безопасному пути:
-1) core/ — доменные контракты (готово)
-2) use_cases/ — оркестрация и проверки по state_machine (в работе)
-3) store/ — стабильная схема + репозиторий
-4) tests/ — сквозные тесты на целостность (уже есть)
-5) api/ — минимальные эндпоинты поверх use_cases (расширяем позже)
+1) core/ — доменные контракты
+2) use_cases/ — оркестрация и проверки по state_machine
+3) store/ — схема + репозиторий
+4) tests/ — сквозные тесты на целостность
+5) api/ — минимальные эндпоинты поверх use_cases
 
 Важно: продукт выдаёт гипотезы, не “истины”.
 
-________________________________________
-## Ссылки внутри проекта
-• Canon: docs/canon.md  
-• Anti-features (NEVER): docs/anti_features.md  
-• State machine: docs/state_machine.md  
+---
 
-________________________________________
+## Ссылки внутри проекта
+- Canon: `docs/canon.md`  
+- Anti-features (NEVER): `docs/anti_features.md`  
+- State machine: `docs/state_machine.md`  
+- API v1: `docs/api_v1.md`
+
+---
+
 ## Лицензия
 TBD (пока private repo)
