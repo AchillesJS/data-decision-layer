@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ValidationError
 
-from api.deps import RepoProtocol, get_repo, get_tenant_id
+from api.deps import get_repo, get_tenant_id
 from api.schemas.action import ActionCreate, ActionRead
 from core.action import Action
 from use_cases.actions import create_action_use_case
@@ -14,7 +14,7 @@ from use_cases.archive import archive_action_use_case
 router = APIRouter(prefix="/api/v1/actions", tags=["actions"])
 
 TenantId = Annotated[str, Depends(get_tenant_id)]
-RepoDep = Annotated[RepoProtocol, Depends(get_repo)]
+RepoDep = Annotated[Any, Depends(get_repo)]
 
 
 Limit = Annotated[int, Query(ge=1, le=200)]
@@ -23,7 +23,7 @@ StatusFilter = Annotated[str | None, Query()]
 HypothesisIdFilter = Annotated[str | None, Query()]
 
 
-def _row_to_read(row: Any) -> ActionRead:
+def _row_to_read(row) -> ActionRead:
     return ActionRead(
         id=row.id,
         created_at=row.created_at,
@@ -47,7 +47,7 @@ def create_action(payload: ActionCreate, tenant_id: TenantId, repo: RepoDep) -> 
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-    create_action_use_case(cast(Any, repo), tenant_id, act)
+    create_action_use_case(repo, tenant_id, act)
 
     row = repo.get_action(tenant_id, str(act.id))
     if row is None:
@@ -88,7 +88,7 @@ def get_action(action_id: str, tenant_id: TenantId, repo: RepoDep) -> ActionRead
 
 @router.post("/{action_id}/archive", response_model=ActionRead)
 def archive_action(action_id: str, tenant_id: TenantId, repo: RepoDep) -> ActionRead:
-    archive_action_use_case(cast(Any, repo), tenant_id, action_id)
+    archive_action_use_case(repo, tenant_id, action_id)
     row = repo.get_action(tenant_id, action_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Action not found")

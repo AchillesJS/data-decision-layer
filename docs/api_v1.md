@@ -14,7 +14,7 @@
 - `X-Tenant-Id` **обязателен для всех запросов**, кроме `GET /health`
 - Внутри API tenant_id прокидывается в use-cases и repo.
 
-Если `X-Tenant-Id` отсутствует → `400 Missing X-Tenant-Id header`.
+Если `X-Tenant-Id` отсутствует → `422 Missing X-Tenant-Id header`.
 
 ## Base URL
 
@@ -72,7 +72,7 @@ Swagger UI:
 
 ## Ошибки (HTTP mapping)
 
-- `400` — missing `X-Tenant-Id`
+- `422` — missing `X-Tenant-Id`
 - `404` — not found (в рамках tenant)
 - `409` — integrity conflict (R1/R2/R3, cross-tenant references, forbidden transitions)
 - `422` — validation (Pydantic)

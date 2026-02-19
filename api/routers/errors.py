@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import ValidationError
 
-from api.deps import RepoProtocol, get_repo, get_tenant_id
+from api.deps import get_repo, get_tenant_id
 from api.schemas.error import ErrorCreate, ErrorRead
 from core.error import Error
 from use_cases.errors import create_error_use_case
@@ -13,7 +13,7 @@ from use_cases.errors import create_error_use_case
 router = APIRouter(prefix="/api/v1/errors", tags=["errors"])
 
 TenantId = Annotated[str, Depends(get_tenant_id)]
-RepoDep = Annotated[RepoProtocol, Depends(get_repo)]
+RepoDep = Annotated[Any, Depends(get_repo)]
 
 Limit = Annotated[int, Query(ge=1, le=200)]
 Offset = Annotated[int, Query(ge=0)]
@@ -22,7 +22,7 @@ YTrueFilter = Annotated[str | None, Query()]
 YPredFilter = Annotated[str | None, Query()]
 
 
-def _row_to_read(row: Any) -> ErrorRead:
+def _row_to_read(row) -> ErrorRead:
     return ErrorRead(
         id=row.id,
         created_at=row.created_at,
@@ -45,7 +45,7 @@ def create_error(payload: ErrorCreate, tenant_id: TenantId, repo: RepoDep) -> Er
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-    row = create_error_use_case(cast(Any, repo), tenant_id, err)
+    row = create_error_use_case(repo, tenant_id, err)
     return _row_to_read(row)
 
 
@@ -54,21 +54,12 @@ def create_error(payload: ErrorCreate, tenant_id: TenantId, repo: RepoDep) -> Er
 def list_errors(
     tenant_id: TenantId,
     repo: RepoDep,
-    response: Response,
     limit: Limit = 50,
     offset: Offset = 0,
     status: StatusFilter = None,
     y_true: YTrueFilter = None,
     y_pred: YPredFilter = None,
 ) -> list[ErrorRead]:
-    total = repo.count_errors(
-        tenant_id,
-        status=status,
-        y_true=y_true,
-        y_pred=y_pred,
-    )
-    response.headers["X-Total-Count"] = str(total)
-
     rows = repo.list_errors(
         tenant_id,
         limit=limit,

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ValidationError
 
-from api.deps import RepoProtocol, get_repo, get_tenant_id
+from api.deps import get_repo, get_tenant_id
 from api.schemas.decision import DecisionRecordCreate, DecisionRecordRead
 from core.decision import DecisionRecord
 from use_cases.decision_records import create_decision_record_use_case
@@ -13,7 +13,7 @@ from use_cases.decision_records import create_decision_record_use_case
 router = APIRouter(prefix="/api/v1/decision-records", tags=["decision-records"])
 
 TenantId = Annotated[str, Depends(get_tenant_id)]
-RepoDep = Annotated[RepoProtocol, Depends(get_repo)]
+RepoDep = Annotated[Any, Depends(get_repo)]
 
 
 Limit = Annotated[int, Query(ge=1, le=200)]
@@ -22,7 +22,7 @@ DecisionFilter = Annotated[str | None, Query()]
 MadeByFilter = Annotated[str | None, Query()]
 
 
-def _row_to_read(row: Any) -> DecisionRecordRead:
+def _row_to_read(row) -> DecisionRecordRead:
     return DecisionRecordRead(
         id=row.id,
         created_at=row.created_at,
@@ -47,7 +47,7 @@ def create_decision_record(
     except ValidationError as exc:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
-    create_decision_record_use_case(cast(Any, repo), tenant_id, record)
+    create_decision_record_use_case(repo, tenant_id, record)
     row = repo.get_decision_record(tenant_id, str(record.id))
     if row is None:
         raise HTTPException(status_code=404, detail="DecisionRecord not found")
