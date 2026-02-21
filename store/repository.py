@@ -826,6 +826,87 @@ class Repository:
         with self.session() as s:  # type: Session
             return self.create_data_potential_in_session(s, tenant_id, potential)
 
+    # -----------------
+    # Data Potentials (read-only)
+    # -----------------
+
+    def get_data_potential_in_session(
+        self, s: Session, tenant_id: str, potential_id: str
+    ) -> DataPotentialRow | None:
+        stmt = select(DataPotentialRow).where(
+            DataPotentialRow.tenant_id == tenant_id,
+            DataPotentialRow.id == potential_id,
+        )
+        return s.scalars(stmt).first()
+
+    def get_data_potential(self, tenant_id: str, potential_id: str) -> DataPotentialRow | None:
+        with self.read_session() as s:  # type: Session
+            row = self.get_data_potential_in_session(s, tenant_id, potential_id)
+            if row is not None:
+                s.expunge(row)
+            return row
+
+    def list_data_potentials_in_session(
+        self,
+        s: Session,
+        tenant_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[DataPotentialRow]:
+        stmt = select(DataPotentialRow).where(DataPotentialRow.tenant_id == tenant_id)
+        if status is not None:
+            stmt = stmt.where(DataPotentialRow.status == status)
+
+        stmt = (
+            stmt.order_by(DataPotentialRow.created_at.desc(), DataPotentialRow.id.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        return list(s.scalars(stmt).all())
+
+    def list_data_potentials(
+        self,
+        tenant_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        status: str | None = None,
+    ) -> list[DataPotentialRow]:
+        with self.read_session() as s:  # type: Session
+            rows = self.list_data_potentials_in_session(
+                s, tenant_id, limit=limit, offset=offset, status=status
+            )
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def count_data_potentials_in_session(
+        self,
+        s: Session,
+        tenant_id: str,
+        *,
+        status: str | None = None,
+    ) -> int:
+        stmt = (
+            select(func.count(DataPotentialRow.id))
+            .select_from(DataPotentialRow)
+            .where(DataPotentialRow.tenant_id == tenant_id)
+        )
+        if status is not None:
+            stmt = stmt.where(DataPotentialRow.status == status)
+        return int(s.execute(stmt).scalar_one())
+
+    def count_data_potentials(
+        self,
+        tenant_id: str,
+        *,
+        status: str | None = None,
+    ) -> int:
+        with self.read_session() as s:  # type: Session
+            return self.count_data_potentials_in_session(s, tenant_id, status=status)
+
     def create_decision_record_in_session(
         self,
         s: Session,

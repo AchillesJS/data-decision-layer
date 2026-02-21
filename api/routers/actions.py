@@ -7,21 +7,21 @@ from pydantic import ValidationError
 
 from api.deps import get_repo, get_tenant_id
 from api.schemas.action import ActionCreate, ActionRead
-from core.action import Action
+from api.schemas.transition import TransitionRequest
+from core.action import Action, ActionStatus
 from use_cases.actions import create_action_use_case
 from use_cases.archive import archive_action_use_case
+from use_cases.transitions import transition_action_use_case
 
 router = APIRouter(prefix="/api/v1/actions", tags=["actions"])
 
 TenantId = Annotated[str, Depends(get_tenant_id)]
 RepoDep = Annotated[Any, Depends(get_repo)]
 
-
 Limit = Annotated[int, Query(ge=1, le=200)]
 Offset = Annotated[int, Query(ge=0)]
 StatusFilter = Annotated[str | None, Query()]
 HypothesisIdFilter = Annotated[str | None, Query()]
-
 
 def _row_to_read(row) -> ActionRead:
     return ActionRead(
@@ -93,3 +93,23 @@ def archive_action(action_id: str, tenant_id: TenantId, repo: RepoDep) -> Action
     if row is None:
         raise HTTPException(status_code=404, detail="Action not found")
     return _row_to_read(row)
+
+
+@router.post("/{action_id}/transition", response_model=ActionRead)
+def transition_action(
+    action_id: str,
+    payload: TransitionRequest,
+    tenant_id: TenantId,
+    repo: RepoDep,
+) -> ActionRead:
+    try:
+        to_status = ActionStatus(payload.to_status)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid to_status") from exc
+
+    transition_action_use_case(repo, tenant_id, action_id, to_status)
+
+    updated = repo.get_action(tenant_id, action_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Action not found")
+    return _row_to_read(updated)

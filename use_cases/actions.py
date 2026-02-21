@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+from typing import Any
+
 from core.action import Action, ActionStatus
 from store.repository import Repository
 
 
 class UseCaseValidationError(ValueError):
-    pass
+    def __init__(self, message: str, *, errors: list[Any] | None = None) -> None:
+        super().__init__(message)
+        self.errors = errors
+
 
 
 def create_action_use_case(repo: Repository, tenant_id: str, action: Action) -> None:

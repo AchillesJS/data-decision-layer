@@ -2,19 +2,26 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import ValidationError
 
 from api.deps import get_repo, get_tenant_id
 from api.schemas.hypothesis import HypothesisCreate, HypothesisRead
-from core.hypothesis import Hypothesis
+from api.schemas.transition import TransitionRequest
+from core.hypothesis import Hypothesis, HypothesisStatus
+from use_cases.archive import archive_hypothesis_use_case
 from use_cases.hypotheses import create_hypothesis_use_case
+from use_cases.transitions import transition_hypothesis_use_case
 
 router = APIRouter(prefix="/api/v1/hypotheses", tags=["hypotheses"])
 
 TenantId = Annotated[str, Depends(get_tenant_id)]
 RepoDep = Annotated[Any, Depends(get_repo)]
 
+Limit = Annotated[int, Query(ge=1, le=200)]
+Offset = Annotated[int, Query(ge=0)]
+StatusFilter = Annotated[str | None, Query()]
+EvidenceErrorIdFilter = Annotated[str | None, Query()]
 
 def _row_to_read(row) -> HypothesisRead:
     return HypothesisRead(
@@ -53,3 +60,55 @@ def get_hypothesis(hypothesis_id: str, tenant_id: TenantId, repo: RepoDep) -> Hy
     if row is None:
         raise HTTPException(status_code=404, detail="Hypothesis not found")
     return _row_to_read(row)
+
+
+@router.get("", response_model=list[HypothesisRead])
+def list_hypotheses(
+    tenant_id: TenantId,
+    repo: RepoDep,
+    response: Response,
+    limit: Limit = 50,
+    offset: Offset = 0,
+    status: StatusFilter = None,
+    evidence_error_id: EvidenceErrorIdFilter = None,
+) -> list[HypothesisRead]:
+    total = repo.count_hypotheses(tenant_id, status=status, evidence_error_id=evidence_error_id)
+    response.headers["X-Total-Count"] = str(total)
+
+    rows = repo.list_hypotheses(
+        tenant_id,
+        limit=limit,
+        offset=offset,
+        status=status,
+        evidence_error_id=evidence_error_id,
+    )
+    return [_row_to_read(r) for r in rows]
+
+
+@router.post("/{hypothesis_id}/archive", response_model=HypothesisRead)
+def archive_hypothesis(hypothesis_id: str, tenant_id: TenantId, repo: RepoDep) -> HypothesisRead:
+    archive_hypothesis_use_case(repo, tenant_id, hypothesis_id)
+    row = repo.get_hypothesis(tenant_id, hypothesis_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+    return _row_to_read(row)
+
+
+@router.post("/{hypothesis_id}/transition", response_model=HypothesisRead)
+def transition_hypothesis(
+    hypothesis_id: str,
+    payload: TransitionRequest,
+    tenant_id: TenantId,
+    repo: RepoDep,
+) -> HypothesisRead:
+    try:
+        to_status = HypothesisStatus(payload.to_status)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Invalid to_status") from exc
+
+    transition_hypothesis_use_case(repo, tenant_id, hypothesis_id, to_status)
+
+    updated = repo.get_hypothesis(tenant_id, hypothesis_id)
+    if updated is None:
+        raise HTTPException(status_code=404, detail="Hypothesis not found")
+    return _row_to_read(updated)

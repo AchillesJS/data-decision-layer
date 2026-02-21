@@ -27,6 +27,8 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(UseCaseValidationError)
     def _use_case_validation(_req: Request, exc: UseCaseValidationError) -> JSONResponse:
+        if getattr(exc, "errors", None):
+            return JSONResponse(status_code=422, content={"detail": exc.errors})
         return JSONResponse(status_code=422, content={"detail": str(exc)})
 
     @app.exception_handler(ForbiddenTransitionError)

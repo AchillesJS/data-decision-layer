@@ -43,21 +43,55 @@ Swagger UI:
 - `y_true` (str, optional)
 - `y_pred` (str, optional)
 
+Ответ для list-эндпоинтов включает заголовок:
+- `X-Total-Count: <int>`
+
 ### Hypotheses
 - `POST /api/v1/hypotheses`
+- `GET  /api/v1/hypotheses`
 - `GET  /api/v1/hypotheses/{id}`
+- `POST /api/v1/hypotheses/{id}/archive`
+- `POST /api/v1/hypotheses/{id}/transition`
+
+**Query params для `GET /api/v1/hypotheses`:**
+- `limit` (int, default `50`, `1..200`)
+- `offset` (int, default `0`, `>=0`)
+- `status` (str, optional)
+- `evidence_error_id` (str, optional)
+
+**Body для `POST /api/v1/hypotheses/{id}/transition`:**
+```json
+{ "to_status": "<enum.value>" }
+```
 
 ### Actions
 - `POST /api/v1/actions`
 - `GET  /api/v1/actions`
 - `GET  /api/v1/actions/{id}`
 - `POST /api/v1/actions/{id}/archive`
+- `POST /api/v1/actions/{id}/transition`
 
 **Query params для `GET /api/v1/actions`:**
 - `limit` (int, default `50`, `1..200`)
 - `offset` (int, default `0`, `>=0`)
 - `status` (str, optional)
 - `hypothesis_id` (str, optional)
+
+**Body для `POST /api/v1/actions/{id}/transition`:**
+```json
+{ "to_status": "<enum.value>" }
+```
+
+### Data Potentials
+- `POST /api/v1/potentials`
+- `GET  /api/v1/potentials`
+- `GET  /api/v1/potentials/{id}`
+- `POST /api/v1/potentials/{id}/archive`
+
+**Query params для `GET /api/v1/potentials`:**
+- `limit` (int, default `50`, `1..200`)
+- `offset` (int, default `0`, `>=0`)
+- `status` (str, optional)
 
 ### Decision Records
 - `POST /api/v1/decision-records`
