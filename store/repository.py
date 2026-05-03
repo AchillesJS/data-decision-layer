@@ -21,7 +21,10 @@ from store.models import (
     DecisionRecordRow,
     ErrorRow,
     HypothesisRow,
+    JobLogChunkRow,
+    JobRow,
     MetricPointRow,
+    RunnerRow,
     RunRow,
     hypothesis_errors,
 )
@@ -58,6 +61,7 @@ _TRow = TypeVar("_TRow")
 @dataclass(frozen=True)
 class RunCreateData:
     id: str
+    external_run_id: str
     created_at: datetime
     updated_at: datetime
     status: str
@@ -82,6 +86,42 @@ class MetricPointCreateData:
     x_value: float
     y_value: float
     created_at: datetime
+
+
+
+
+@dataclass(frozen=True)
+class RunnerCreateData:
+    id: str
+    name: str | None
+    tags_json: list[str]
+    status: str
+    last_seen_at: datetime
+    token_hash: str
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class JobCreateData:
+    id: str
+    status: str
+    requested_tags_json: list[str] | None
+    command: str
+    workdir: str | None
+    env_json: dict[str, str] | None
+    timeout_sec: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class JobLogChunkCreateData:
+    id: str
+    seq: int
+    ts: datetime
+    stream: str
+    chunk: str
 
 
 @dataclass(frozen=True)
@@ -1107,6 +1147,7 @@ class Repository:
         row = RunRow(
             id=str(data.id),
             tenant_id=tenant_id,
+            external_run_id=str(data.external_run_id),
             created_at=_naive_utc(data.created_at),
             updated_at=_naive_utc(data.updated_at),
             status=str(data.status),
@@ -1279,3 +1320,150 @@ class Repository:
             ).all()
         )
         return len(found) == len(unique_ids)
+
+
+    def get_run_by_external_run_id_in_session(
+        self, s: Session, tenant_id: str, external_run_id: str
+    ) -> RunRow | None:
+        stmt = select(RunRow).where(
+            RunRow.tenant_id == tenant_id,
+            RunRow.external_run_id == external_run_id,
+        )
+        return s.scalars(stmt).first()
+
+    # -----------------
+    # Runners / Jobs (read/write)
+    # -----------------
+
+    def create_runner_in_session(
+        self, s: Session, tenant_id: str, data: RunnerCreateData
+    ) -> RunnerRow:
+        row = RunnerRow(
+            id=data.id,
+            tenant_id=tenant_id,
+            name=data.name,
+            tags_json=data.tags_json,
+            status=data.status,
+            last_seen_at=_naive_utc(data.last_seen_at),
+            token_hash=data.token_hash,
+            created_at=_naive_utc(data.created_at),
+            updated_at=_naive_utc(data.updated_at),
+        )
+        s.add(row)
+        return row
+
+    def get_runner_in_session(self, s: Session, tenant_id: str, runner_id: str) -> RunnerRow | None:
+        stmt = select(RunnerRow).where(RunnerRow.tenant_id == tenant_id, RunnerRow.id == runner_id)
+        return s.scalars(stmt).first()
+
+    def list_runners(self, tenant_id: str, *, limit: int = 200, offset: int = 0) -> list[RunnerRow]:
+        with self.read_session() as s:
+            stmt = (
+                select(RunnerRow)
+                .where(RunnerRow.tenant_id == tenant_id)
+                .order_by(RunnerRow.created_at.desc(), RunnerRow.id.desc())
+                .limit(limit)
+                .offset(offset)
+            )
+            rows = list(s.scalars(stmt).all())
+            for row in rows:
+                s.expunge(row)
+            return rows
+
+    def create_job_in_session(self, s: Session, tenant_id: str, data: JobCreateData) -> JobRow:
+        row = JobRow(
+            id=data.id,
+            tenant_id=tenant_id,
+            status=data.status,
+            requested_tags_json=data.requested_tags_json,
+            command=data.command,
+            workdir=data.workdir,
+            env_json=data.env_json,
+            timeout_sec=data.timeout_sec,
+            created_at=_naive_utc(data.created_at),
+            updated_at=_naive_utc(data.updated_at),
+        )
+        s.add(row)
+        return row
+
+    def create_job(self, tenant_id: str, data: JobCreateData) -> JobRow:
+        with self.session() as s:
+            row = self.create_job_in_session(s, tenant_id, data)
+            s.flush()
+            s.expunge(row)
+            return row
+
+    def get_job_in_session(self, s: Session, tenant_id: str, job_id: str) -> JobRow | None:
+        stmt = select(JobRow).where(JobRow.tenant_id == tenant_id, JobRow.id == job_id)
+        return s.scalars(stmt).first()
+
+    def get_job(self, tenant_id: str, job_id: str) -> JobRow | None:
+        with self.read_session() as s:
+            row = self.get_job_in_session(s, tenant_id, job_id)
+            if row is not None:
+                s.expunge(row)
+            return row
+
+    def list_jobs(
+        self,
+        tenant_id: str,
+        *,
+        status: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[JobRow]:
+        with self.read_session() as s:
+            stmt = select(JobRow).where(JobRow.tenant_id == tenant_id)
+            if status is not None:
+                stmt = stmt.where(JobRow.status == status)
+            stmt = stmt.order_by(JobRow.created_at.desc(), JobRow.id.desc()).limit(limit).offset(offset)
+            rows = list(s.scalars(stmt).all())
+            for row in rows:
+                s.expunge(row)
+            return rows
+
+    def list_queued_jobs_in_session(self, s: Session, tenant_id: str) -> list[JobRow]:
+        stmt = (
+            select(JobRow)
+            .where(JobRow.tenant_id == tenant_id, JobRow.status == "QUEUED")
+            .order_by(JobRow.created_at.asc(), JobRow.id.asc())
+        )
+        return list(s.scalars(stmt).all())
+
+    def create_job_log_chunks_in_session(
+        self, s: Session, tenant_id: str, job_id: str, chunks: list[JobLogChunkCreateData]
+    ) -> list[JobLogChunkRow]:
+        rows: list[JobLogChunkRow] = []
+        for data in chunks:
+            row = JobLogChunkRow(
+                id=data.id,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                seq=int(data.seq),
+                ts=_naive_utc(data.ts),
+                stream=data.stream,
+                chunk=data.chunk,
+            )
+            s.add(row)
+            rows.append(row)
+        return rows
+
+    def list_job_log_chunks_in_session(
+        self, s: Session, tenant_id: str, job_id: str, *, limit: int = 200
+    ) -> list[JobLogChunkRow]:
+        stmt = (
+            select(JobLogChunkRow)
+            .where(JobLogChunkRow.tenant_id == tenant_id, JobLogChunkRow.job_id == job_id)
+            .order_by(JobLogChunkRow.seq.asc())
+            .limit(limit)
+        )
+        return list(s.scalars(stmt).all())
+
+    def list_job_log_chunks(
+        self, tenant_id: str, job_id: str, *, limit: int = 200
+    ) -> list[JobLogChunkRow]:
+        with self.read_session() as s:
+            rows = self.list_job_log_chunks_in_session(s, tenant_id, job_id, limit=limit)
+            for row in rows:
+                s.expunge(row)
+            return rows

@@ -10,7 +10,17 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.exceptions import register_exception_handlers
-from api.routers import actions, analytics, decisions, errors, hypotheses, potentials, runs
+from api.routers import (
+    actions,
+    analytics,
+    decisions,
+    errors,
+    hypotheses,
+    jobs,
+    potentials,
+    runners,
+    runs,
+)
 
 logger = logging.getLogger("ddw.api")
 
@@ -87,6 +97,8 @@ def create_app() -> FastAPI:
     app.include_router(decisions.router)
     app.include_router(potentials.router)
     app.include_router(runs.router)
+    app.include_router(runners.router)
+    app.include_router(jobs.router)
     app.include_router(analytics.router)
 
     return app

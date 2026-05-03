@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     Column,
@@ -14,6 +15,7 @@ from sqlalchemy import (
     String,
     Table,
     Text,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -244,6 +246,7 @@ class RunRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    external_run_id: Mapped[str] = mapped_column(String, nullable=False, default=lambda: f"legacy:{uuid4()}")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
 
@@ -272,6 +275,7 @@ class RunRow(Base):
         Index("ix_runs_tenant_id_model_tag", "tenant_id", "model_tag"),
         Index("ix_runs_tenant_id_metric_name", "tenant_id", "metric_name"),
         Index("ix_runs_tenant_id_dataset_version", "tenant_id", "dataset_version"),
+        UniqueConstraint("tenant_id", "external_run_id", name="uq_runs_tenant_external_run_id"),
     )
 
 
@@ -291,3 +295,68 @@ class MetricPointRow(Base):
     run: Mapped[RunRow] = relationship(back_populates="metric_points")
 
     __table_args__ = (Index("ix_metric_points_tenant_id_run_id", "tenant_id", "run_id"),)
+
+
+class RunnerRow(Base):
+    __tablename__ = "runners"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    name: Mapped[str | None] = mapped_column(String, nullable=True)
+    tags_json: Mapped[list[str]] = mapped_column(JSONText, nullable=False, default=list)
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+
+    __table_args__ = (
+        Index("ix_runners_tenant_id_status", "tenant_id", "status"),
+        Index("ix_runners_tenant_id_last_seen_at", "tenant_id", "last_seen_at"),
+    )
+
+
+class JobRow(Base):
+    __tablename__ = "jobs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    requested_tags_json: Mapped[list[str] | None] = mapped_column(JSONText, nullable=True)
+    runner_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    lease_token_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    command: Mapped[str] = mapped_column(Text, nullable=False)
+    workdir: Mapped[str | None] = mapped_column(Text, nullable=True)
+    env_json: Mapped[dict[str, str] | None] = mapped_column(JSONText, nullable=True)
+    timeout_sec: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False), nullable=True)
+    exit_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    run_id: Mapped[str | None] = mapped_column(ForeignKey("runs.id"), nullable=True)
+
+    __table_args__ = (
+        Index("ix_jobs_tenant_id_status", "tenant_id", "status"),
+        Index("ix_jobs_tenant_id_created_at", "tenant_id", "created_at"),
+        Index("ix_jobs_tenant_id_runner_id", "tenant_id", "runner_id"),
+    )
+
+
+class JobLogChunkRow(Base):
+    __tablename__ = "job_log_chunks"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    job_id: Mapped[str] = mapped_column(ForeignKey("jobs.id"), nullable=False)
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    ts: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    stream: Mapped[str] = mapped_column(String, nullable=False)
+    chunk: Mapped[str] = mapped_column(Text, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "job_id", "seq", name="uq_job_log_chunks_tenant_job_seq"),
+        Index("ix_job_log_chunks_tenant_id_job_id_seq", "tenant_id", "job_id", "seq"),
+    )

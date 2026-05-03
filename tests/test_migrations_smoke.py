@@ -42,6 +42,9 @@ def test_migrations_smoke_upgrade_head(
         "decision_record_actions",
         "runs",
         "metric_points",
+        "runners",
+        "jobs",
+        "job_log_chunks",
     }
 
     missing = expected - tables

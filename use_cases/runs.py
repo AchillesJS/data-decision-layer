@@ -51,6 +51,7 @@ def create_run_use_case(repo: Repository, tenant_id: str, payload: dict) -> RunR
     now = _utcnow_naive()
     data = RunCreateData(
         id=str(uuid4()),
+        external_run_id=str(payload.get("external_run_id") or f"manual:{uuid4()}"),
         created_at=now,
         updated_at=now,
         status=str(payload.get("status") or ""),

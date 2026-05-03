@@ -18,8 +18,8 @@ from datetime import date, datetime, time
 from pathlib import Path
 from typing import Any
 
-import requests  # type: ignore[import-untyped]
-import streamlit as st  # type: ignore[import-not-found]
+import requests
+import streamlit as st
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TENANT_ID = "tenantA"
