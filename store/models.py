@@ -55,21 +55,27 @@ hypothesis_errors = Table(
 decision_record_errors = Table(
     "decision_record_errors",
     Base.metadata,
-    Column("decision_record_id", String, ForeignKey("decision_records.id"), primary_key=True),
+    Column(
+        "decision_record_id", String, ForeignKey("decision_records.id"), primary_key=True
+    ),
     Column("error_id", String, ForeignKey("errors.id"), primary_key=True),
 )
 
 decision_record_hypotheses = Table(
     "decision_record_hypotheses",
     Base.metadata,
-    Column("decision_record_id", String, ForeignKey("decision_records.id"), primary_key=True),
+    Column(
+        "decision_record_id", String, ForeignKey("decision_records.id"), primary_key=True
+    ),
     Column("hypothesis_id", String, ForeignKey("hypotheses.id"), primary_key=True),
 )
 
 decision_record_actions = Table(
     "decision_record_actions",
     Base.metadata,
-    Column("decision_record_id", String, ForeignKey("decision_records.id"), primary_key=True),
+    Column(
+        "decision_record_id", String, ForeignKey("decision_records.id"), primary_key=True
+    ),
     Column("action_id", String, ForeignKey("actions.id"), primary_key=True),
 )
 
@@ -85,7 +91,6 @@ class ErrorRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    # TODO: add indexes for project_id/model_id/run_id when they exist in core
 
     y_true: Mapped[str] = mapped_column(String, nullable=False)
     y_pred: Mapped[str] = mapped_column(String, nullable=False)
@@ -118,7 +123,6 @@ class HypothesisRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    # TODO: add indexes for project_id/model_id/run_id when they exist in core
 
     title: Mapped[str] = mapped_column(String(140), nullable=False)
     statement: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -151,7 +155,6 @@ class ActionRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    # TODO: add indexes for project_id/model_id/run_id when they exist in core
 
     hypothesis_id: Mapped[str | None] = mapped_column(ForeignKey("hypotheses.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -182,7 +185,6 @@ class DataPotentialRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, index=True)
-    # TODO: add indexes for project_id/model_id/run_id when they exist in core
 
     metric_name: Mapped[str] = mapped_column(String(64), nullable=False)
     current: Mapped[float] = mapped_column(Float, nullable=False)
@@ -193,6 +195,7 @@ class DataPotentialRow(Base):
     limiting_factors: Mapped[list[str]] = mapped_column(JSONText, nullable=False, default=list)
     assumptions: Mapped[list[str]] = mapped_column(JSONText, nullable=False, default=list)
     evidence_error_ids: Mapped[list[str]] = mapped_column(JSONText, nullable=False, default=list)
+    evidence_run_ids: Mapped[list[str]] = mapped_column(JSONText, nullable=False, default=list)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     decision_records: Mapped[list[DecisionRecordRow]] = relationship(back_populates="potential")
@@ -210,7 +213,6 @@ class DecisionRecordRow(Base):
     id: Mapped[str] = mapped_column(String, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
-    # TODO: add indexes for project_id/model_id/run_id when they exist in core
 
     made_by: Mapped[str] = mapped_column(String(120), nullable=False)
     decision: Mapped[str] = mapped_column(String, nullable=False)
@@ -218,9 +220,7 @@ class DecisionRecordRow(Base):
     rationale: Mapped[str] = mapped_column(Text, nullable=False)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    potential_id: Mapped[str | None] = mapped_column(
-        ForeignKey("data_potentials.id"), nullable=True
-    )
+    potential_id: Mapped[str | None] = mapped_column(ForeignKey("data_potentials.id"), nullable=True)
     potential: Mapped[DataPotentialRow | None] = relationship(back_populates="decision_records")
 
     errors: Mapped[list[ErrorRow]] = relationship(
@@ -237,3 +237,57 @@ class DecisionRecordRow(Base):
         Index("ix_decision_records_tenant_id_created_at", "tenant_id", "created_at"),
         Index("ix_decision_records_created_at", "created_at"),
     )
+
+
+class RunRow(Base):
+    __tablename__ = "runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+
+    status: Mapped[str] = mapped_column(String, nullable=False)
+    dataset_version: Mapped[str | None] = mapped_column(String, nullable=True)
+    dataset_size: Mapped[float] = mapped_column(Float, nullable=False)
+    model_tag: Mapped[str] = mapped_column(String, nullable=False)
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    budget_kind: Mapped[str] = mapped_column(String, nullable=False)
+    budget_value: Mapped[float] = mapped_column(Float, nullable=False)
+
+    metric_name: Mapped[str] = mapped_column(String, nullable=False)
+    split: Mapped[str | None] = mapped_column(String, nullable=True)
+    metric_final: Mapped[float] = mapped_column(Float, nullable=False)
+
+    config_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    git_commit: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    metric_points: Mapped[list[MetricPointRow]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index("ix_runs_tenant_id_created_at", "tenant_id", "created_at"),
+        Index("ix_runs_tenant_id_model_tag", "tenant_id", "model_tag"),
+        Index("ix_runs_tenant_id_metric_name", "tenant_id", "metric_name"),
+        Index("ix_runs_tenant_id_dataset_version", "tenant_id", "dataset_version"),
+    )
+
+
+class MetricPointRow(Base):
+    __tablename__ = "metric_points"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id"), nullable=False)
+    series_name: Mapped[str] = mapped_column(String, nullable=False)
+    x_kind: Mapped[str] = mapped_column(String, nullable=False)
+    x_value: Mapped[float] = mapped_column(Float, nullable=False)
+    y_value: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+
+    run: Mapped[RunRow] = relationship(back_populates="metric_points")
+
+    __table_args__ = (Index("ix_metric_points_tenant_id_run_id", "tenant_id", "run_id"),)

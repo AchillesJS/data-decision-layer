@@ -21,6 +21,8 @@ from store.models import (
     DecisionRecordRow,
     ErrorRow,
     HypothesisRow,
+    MetricPointRow,
+    RunRow,
     hypothesis_errors,
 )
 
@@ -51,6 +53,35 @@ _STATUS_MODEL_BY_TYPE: dict[str, type] = {
 
 
 _TRow = TypeVar("_TRow")
+
+
+@dataclass(frozen=True)
+class RunCreateData:
+    id: str
+    created_at: datetime
+    updated_at: datetime
+    status: str
+    dataset_version: str | None
+    dataset_size: float
+    model_tag: str
+    seed: int | None
+    budget_kind: str
+    budget_value: float
+    metric_name: str
+    split: str | None
+    metric_final: float
+    config_hash: str | None
+    git_commit: str | None
+
+
+@dataclass(frozen=True)
+class MetricPointCreateData:
+    id: str
+    series_name: str
+    x_kind: str
+    x_value: float
+    y_value: float
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -817,6 +848,7 @@ class Repository:
             limiting_factors=[str(x) for x in potential.limiting_factors],
             assumptions=[str(x) for x in potential.assumptions],
             evidence_error_ids=[str(x) for x in potential.evidence_error_ids],
+            evidence_run_ids=list(potential.evidence_run_ids),
             notes=potential.notes,
         )
         s.add(row)
@@ -1066,6 +1098,164 @@ class Repository:
     def archive_data_potential(self, tenant_id: str, entity_id: str) -> None:
         with self.session() as s:  # type: Session
             self.archive_data_potential_in_session(s, tenant_id, entity_id)
+
+    # -----------------
+    # Runs (read/write)
+    # -----------------
+
+    def create_run_in_session(self, s: Session, tenant_id: str, data: RunCreateData) -> RunRow:
+        row = RunRow(
+            id=str(data.id),
+            tenant_id=tenant_id,
+            created_at=_naive_utc(data.created_at),
+            updated_at=_naive_utc(data.updated_at),
+            status=str(data.status),
+            dataset_version=data.dataset_version,
+            dataset_size=float(data.dataset_size),
+            model_tag=str(data.model_tag),
+            seed=data.seed,
+            budget_kind=str(data.budget_kind),
+            budget_value=float(data.budget_value),
+            metric_name=str(data.metric_name),
+            split=data.split,
+            metric_final=float(data.metric_final),
+            config_hash=data.config_hash,
+            git_commit=data.git_commit,
+        )
+        s.add(row)
+        return row
+
+    def create_run(self, tenant_id: str, data: RunCreateData) -> RunRow:
+        with self.session() as s:  # type: Session
+            return self.create_run_in_session(s, tenant_id, data)
+
+    def list_runs(
+        self,
+        tenant_id: str,
+        *,
+        model_tag: str | None = None,
+        dataset_version: str | None = None,
+        metric_name: str | None = None,
+        split: str | None = None,
+        budget_kind: str | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[RunRow]:
+        with self.read_session() as s:  # type: Session
+            stmt = select(RunRow).where(RunRow.tenant_id == tenant_id)
+
+            if model_tag is not None:
+                stmt = stmt.where(RunRow.model_tag == model_tag)
+            if dataset_version is not None:
+                stmt = stmt.where(RunRow.dataset_version == dataset_version)
+            if metric_name is not None:
+                stmt = stmt.where(RunRow.metric_name == metric_name)
+            if split is not None:
+                stmt = stmt.where(RunRow.split == split)
+            if budget_kind is not None:
+                stmt = stmt.where(RunRow.budget_kind == budget_kind)
+
+            stmt = stmt.order_by(RunRow.created_at.desc(), RunRow.id.desc()).limit(limit).offset(offset)
+            rows = list(s.scalars(stmt).all())
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def get_run(self, tenant_id: str, run_id: str) -> RunRow | None:
+        with self.read_session() as s:  # type: Session
+            stmt = select(RunRow).where(RunRow.tenant_id == tenant_id, RunRow.id == run_id)
+            row = s.scalars(stmt).first()
+            if row is not None:
+                s.expunge(row)
+            return row
+
+    # -----------------
+    # Metric points (optional)
+    # -----------------
+
+    def create_metric_points_in_session(
+        self,
+        s: Session,
+        tenant_id: str,
+        run_id: str,
+        points: list[MetricPointCreateData],
+    ) -> list[MetricPointRow]:
+        rows: list[MetricPointRow] = []
+        for p in points:
+            row = MetricPointRow(
+                id=str(p.id),
+                tenant_id=tenant_id,
+                run_id=run_id,
+                series_name=str(p.series_name),
+                x_kind=str(p.x_kind),
+                x_value=float(p.x_value),
+                y_value=float(p.y_value),
+                created_at=_naive_utc(p.created_at),
+            )
+            s.add(row)
+            rows.append(row)
+        return rows
+
+    def create_metric_points(
+        self,
+        tenant_id: str,
+        run_id: str,
+        points: list[MetricPointCreateData],
+    ) -> list[MetricPointRow]:
+        with self.session() as s:  # type: Session
+            return self.create_metric_points_in_session(s, tenant_id, run_id, points)
+
+    def list_metric_points(self, tenant_id: str, run_id: str) -> list[MetricPointRow]:
+        with self.read_session() as s:  # type: Session
+            stmt = select(MetricPointRow).where(
+                MetricPointRow.tenant_id == tenant_id,
+                MetricPointRow.run_id == run_id,
+            )
+            stmt = stmt.order_by(MetricPointRow.created_at.asc(), MetricPointRow.id.asc())
+            rows = list(s.scalars(stmt).all())
+            for r in rows:
+                s.expunge(r)
+            return rows
+
+    def list_metric_points_for_runs(
+        self,
+        tenant_id: str,
+        run_ids: Sequence[str],
+        *,
+        chunk_size: int = 500,
+    ) -> list[MetricPointRow]:
+        """Batch-load MetricPoints for many runs (tenant-scoped).
+
+        Uses chunking to stay below SQLite 999-params limit.
+        Deterministic order:
+          run_id ASC, created_at ASC, id ASC
+        """
+
+        if not run_ids:
+            return []
+
+        effective_chunk = max(1, min(int(chunk_size), 500))
+        unique_sorted = sorted(set(run_ids))
+
+        out: list[MetricPointRow] = []
+        with self.read_session() as s:  # type: Session
+            for i in range(0, len(unique_sorted), effective_chunk):
+                chunk = unique_sorted[i : i + effective_chunk]
+                stmt = select(MetricPointRow).where(
+                    MetricPointRow.tenant_id == tenant_id,
+                    MetricPointRow.run_id.in_(list(chunk)),
+                )
+                stmt = stmt.order_by(
+                    MetricPointRow.run_id.asc(),
+                    MetricPointRow.created_at.asc(),
+                    MetricPointRow.id.asc(),
+                )
+                rows = list(s.scalars(stmt).all())
+                for r in rows:
+                    s.expunge(r)
+                out.extend(rows)
+
+        return out
 
     # -----------------
     # Internal helpers

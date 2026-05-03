@@ -51,6 +51,7 @@ class SaturationEstimate(BaseModel):
     confidence: float
     assumptions: list[str]
     evidence_run_ids: list[str] = Field(min_length=1)
+    evidence_run_count_total: int = Field(ge=1)
     fit: FitReport
 
 
@@ -71,6 +72,7 @@ class RegimeEstimate(BaseModel):
     confidence: float
     signals: list[RegimeSignal]
     evidence_run_ids: list[str] = Field(min_length=1)
+    evidence_run_count_total: int = Field(ge=1)
 
 
 class DataPotentialDraft(BaseModel):

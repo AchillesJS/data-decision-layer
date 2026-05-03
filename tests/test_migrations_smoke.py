@@ -40,6 +40,8 @@ def test_migrations_smoke_upgrade_head(
         "decision_record_errors",
         "decision_record_hypotheses",
         "decision_record_actions",
+        "runs",
+        "metric_points",
     }
 
     missing = expected - tables

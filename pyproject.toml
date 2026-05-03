@@ -1,3 +1,9 @@
+[project]
+name = "ddw"
+version = "0.1.0"
+description = "Data Decision Workspace — backend"
+requires-python = ">=3.11"
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 

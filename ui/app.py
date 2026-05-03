@@ -14,20 +14,19 @@ Run:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, date, time
+from datetime import date, datetime, time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-import requests
-import streamlit as st
-
+import requests  # type: ignore[import-untyped]
+import streamlit as st  # type: ignore[import-not-found]
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 DEFAULT_TENANT_ID = "tenantA"
 TIMEOUT_S = 15
 
 # Keep in sync with docs/state_machine.md (UI contract).
-ALLOWED_TRANSITIONS: Dict[str, List[Tuple[str, str]]] = {
+ALLOWED_TRANSITIONS: dict[str, list[tuple[str, str]]] = {
     "hypothesis": [
         ("draft", "active"),
         ("active", "testing"),
@@ -63,8 +62,8 @@ def _now_iso() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
-def _split_lines(text: str) -> List[str]:
-    items: List[str] = []
+def _split_lines(text: str) -> list[str]:
+    items: list[str] = []
     for line in (text or "").splitlines():
         s = line.strip()
         if s:
@@ -72,8 +71,8 @@ def _split_lines(text: str) -> List[str]:
     return items
 
 
-def _parse_kv_lines(text: str) -> Dict[str, str]:
-    out: Dict[str, str] = {}
+def _parse_kv_lines(text: str) -> dict[str, str]:
+    out: dict[str, str] = {}
     for line in _split_lines(text):
         if "=" not in line:
             continue
@@ -141,7 +140,7 @@ def _escape_html(text: str) -> str:
     )
 
 
-def _wow_card(title: str, lines: List[str], *, footer: Optional[str] = None) -> None:
+def _wow_card(title: str, lines: list[str], *, footer: str | None = None) -> None:
     st.markdown(
         """
         <style>
@@ -153,7 +152,7 @@ def _wow_card(title: str, lines: List[str], *, footer: Optional[str] = None) -> 
         """,
         unsafe_allow_html=True,
     )
-    body = "".join([f'<div class="ddw-line">{_escape_html(l)}</div>' for l in lines])
+    body = "".join([f'<div class="ddw-line">{_escape_html(line)}</div>' for line in lines])
     foot = f'<div class="ddw-footer">{_escape_html(footer)}</div>' if footer else ""
     st.markdown(
         f'<div class="ddw-card"><div class="ddw-title">{_escape_html(title)}</div>{body}{foot}</div>',
@@ -165,7 +164,7 @@ def _md(text: str) -> None:
     st.markdown(text or "—")
 
 
-def _next_statuses(entity: str, current: str) -> List[str]:
+def _next_statuses(entity: str, current: str) -> list[str]:
     curr = (current or "").strip()
     pairs = ALLOWED_TRANSITIONS.get(entity, [])
     return [to for (frm, to) in pairs if frm == curr]
@@ -210,7 +209,7 @@ def _save_note(tenant_id: str, entity: str, entity_id: str, content: str) -> boo
         return False
 
 
-def _entity_to_note_template(entity: str, obj: Dict[str, Any]) -> str:
+def _entity_to_note_template(entity: str, obj: dict[str, Any]) -> str:
     if entity == "hypothesis":
         return (
             f"# Hypothesis\n\n"
@@ -224,10 +223,10 @@ def _entity_to_note_template(entity: str, obj: Dict[str, Any]) -> str:
             f"## Arguments\n"
             + "\n".join([f"- {x}" for x in (obj.get("arguments") or [])])
             + "\n\n"
-            f"## Alternatives\n"
+            "## Alternatives\n"
             + "\n".join([f"- {x}" for x in (obj.get("alternatives") or [])])
             + "\n\n"
-            f"## Evidence (error_ids)\n"
+            "## Evidence (error_ids)\n"
             + "\n".join([f"- `{x}`" for x in (obj.get("evidence_error_ids") or [])])
             + "\n"
         )
@@ -274,10 +273,10 @@ def _entity_to_note_template(entity: str, obj: Dict[str, Any]) -> str:
             f"## Limiting factors\n"
             + "\n".join([f"- {x}" for x in (obj.get("limiting_factors") or [])])
             + "\n\n"
-            f"## Assumptions\n"
+            "## Assumptions\n"
             + "\n".join([f"- {x}" for x in (obj.get("assumptions") or [])])
             + "\n\n"
-            f"## Evidence (error_ids)\n"
+            "## Evidence (error_ids)\n"
             + "\n".join([f"- `{x}`" for x in (obj.get("evidence_error_ids") or [])])
             + "\n\n"
             f"## Notes\n"
@@ -286,7 +285,7 @@ def _entity_to_note_template(entity: str, obj: Dict[str, Any]) -> str:
     return "# Note\n\n"
 
 
-def _render_note_panel(api: "ApiClient", entity: str, obj: Dict[str, Any]) -> None:
+def _render_note_panel(api: ApiClient, entity: str, obj: dict[str, Any]) -> None:
     tenant_id = (api.tenant_id or "").strip()
     entity_id = obj.get("id", "")
 
@@ -327,7 +326,7 @@ class ApiClient:
     base_url: str
     tenant_id: str
 
-    def _headers(self) -> Dict[str, str]:
+    def _headers(self) -> dict[str, str]:
         return {
             "X-Tenant-Id": self.tenant_id,
             "Content-Type": "application/json",
@@ -338,10 +337,10 @@ class ApiClient:
         method: str,
         path: str,
         *,
-        params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
+        json: dict[str, Any] | None = None,
         allow_error_ui: bool = True,
-    ) -> Tuple[bool, Optional[Any], Optional[requests.Response]]:
+    ) -> tuple[bool, Any | None, requests.Response | None]:
         url = f"{self.base_url}{path}"
         try:
             resp = requests.request(
@@ -371,8 +370,8 @@ class ApiClient:
         self,
         path: str,
         *,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Tuple[bool, List[Dict[str, Any]], Optional[int]]:
+        params: dict[str, Any] | None = None,
+    ) -> tuple[bool, list[dict[str, Any]], int | None]:
         ok, data, resp = self.request("GET", path, params=params)
         if not ok or resp is None:
             return False, [], None
@@ -392,10 +391,11 @@ class ApiClient:
 # Capability / endpoint detection (optional)
 # ----------------------------
 
-def _openapi_spec(base_url: str) -> Optional[Dict[str, Any]]:
+def _openapi_spec(base_url: str) -> dict[str, Any] | None:
     key = f"openapi::{base_url}"
     if key in st.session_state:
-        return st.session_state[key]
+        cached = st.session_state[key]
+        return cached if isinstance(cached, dict) else None
 
     url = f"{base_url}/openapi.json"
     try:
@@ -404,14 +404,15 @@ def _openapi_spec(base_url: str) -> Optional[Dict[str, Any]]:
             st.session_state[key] = None
             return None
         spec = resp.json()
-        st.session_state[key] = spec if isinstance(spec, dict) else None
-        return st.session_state[key]
+        parsed = spec if isinstance(spec, dict) else None
+        st.session_state[key] = parsed
+        return parsed
     except Exception:
         st.session_state[key] = None
         return None
 
 
-def _supports(spec: Optional[Dict[str, Any]], method: str, path: str) -> bool:
+def _supports(spec: dict[str, Any] | None, method: str, path: str) -> bool:
     if not spec:
         return False
     paths = spec.get("paths") if isinstance(spec, dict) else None
@@ -477,7 +478,7 @@ def _quick_switcher(api: ApiClient) -> None:
     def match(s: str) -> bool:
         return ql in (s or "").lower()
 
-    items: List[Tuple[str, str, str]] = []
+    items: list[tuple[str, str, str]] = []
     for h in hyps:
         label = f"H · {h.get('title','(no title)')} · {h.get('status','')} · {h.get('id','')}"
         if not ql or match(h.get("title", "")) or match(h.get("id", "")) or match(h.get("status", "")):
@@ -520,8 +521,8 @@ def _quick_switcher(api: ApiClient) -> None:
 def _dashboard_page(api: ApiClient) -> None:
     st.header("Dashboard")
 
-    def count(path: str, *, status: Optional[str] = None) -> Optional[int]:
-        params: Dict[str, Any] = {"limit": 1, "offset": 0}
+    def count(path: str, *, status: str | None = None) -> int | None:
+        params: dict[str, Any] = {"limit": 1, "offset": 0}
         if status is not None:
             params["status"] = status
         ok, _rows, total = api.get_list(path, params=params)
@@ -610,7 +611,7 @@ def _dashboard_page(api: ApiClient) -> None:
                 st.json(data)
 
 
-def _hypotheses_actions_page(api: ApiClient, spec: Optional[Dict[str, Any]]) -> None:
+def _hypotheses_actions_page(api: ApiClient, spec: dict[str, Any] | None) -> None:
     st.header("Hypotheses → Actions")
 
     left, right = st.columns([1.15, 1.35], gap="large")
@@ -624,7 +625,7 @@ def _hypotheses_actions_page(api: ApiClient, spec: Optional[Dict[str, Any]]) -> 
             index=1,
         )
         search = st.text_input("Search title/id", placeholder="type…")
-        params: Dict[str, Any] = {"limit": 50, "offset": 0}
+        params: dict[str, Any] = {"limit": 50, "offset": 0}
         if status_filter != "(all)":
             params["status"] = status_filter
 
@@ -696,7 +697,7 @@ def _hypotheses_actions_page(api: ApiClient, spec: Optional[Dict[str, Any]]) -> 
                 submitted = st.form_submit_button("Create")
 
             if submitted:
-                payload: Dict[str, Any] = {
+                payload: dict[str, Any] = {
                     "title": title,
                     "statement": statement,
                     "status": status,
@@ -708,7 +709,7 @@ def _hypotheses_actions_page(api: ApiClient, spec: Optional[Dict[str, Any]]) -> 
                 }
 
                 scope_filters = _parse_kv_lines(filters_kv)
-                scope: Dict[str, Any] = {
+                scope: dict[str, Any] = {
                     "filters": scope_filters or None,
                     "y_true": scope_y_true.strip() or None,
                     "y_pred": scope_y_pred.strip() or None,
@@ -882,7 +883,7 @@ def _hypotheses_actions_page(api: ApiClient, spec: Optional[Dict[str, Any]]) -> 
                     curr = act.get("status", "")
                     nexts_a = _next_statuses("action", curr)
 
-                    filtered: List[str] = []
+                    filtered: list[str] = []
                     for to_s in nexts_a:
                         if to_s == "done" and not has_complete_ep:
                             continue
@@ -972,7 +973,7 @@ def _hypotheses_actions_page(api: ApiClient, spec: Optional[Dict[str, Any]]) -> 
             submitted = st.form_submit_button("Create action")
 
         if submitted:
-            cost_payload: Dict[str, Any] = {"note": cost_note.strip() or None}
+            cost_payload: dict[str, Any] = {"note": cost_note.strip() or None}
             if time_hours > 0.0:
                 cost_payload["time_hours"] = float(time_hours)
             if money > 0.0:
@@ -1004,7 +1005,7 @@ def _potentials_page(api: ApiClient) -> None:
         status_filter = st.selectbox("Status", ["(all)", "draft", "estimated", "stale", "archived"], index=0)
         search = st.text_input("Search metric/id", placeholder="type…")
 
-        params: Dict[str, Any] = {"limit": 50, "offset": 0}
+        params: dict[str, Any] = {"limit": 50, "offset": 0}
         if status_filter != "(all)":
             params["status"] = status_filter
 
@@ -1074,7 +1075,7 @@ def _potentials_page(api: ApiClient) -> None:
                 submitted = st.form_submit_button("Create")
 
             if submitted:
-                payload: Dict[str, Any] = {
+                payload: dict[str, Any] = {
                     "metric_name": metric_name,
                     "current": float(current),
                     "status": status,
@@ -1193,7 +1194,7 @@ def _workflow_page(api: ApiClient) -> None:
             index=0,
         )
         search = st.text_input("Search title/id", placeholder="type…", key="wf_h_search")
-        params: Dict[str, Any] = {"limit": 50, "offset": 0}
+        params: dict[str, Any] = {"limit": 50, "offset": 0}
         if status_filter != "(all)":
             params["status"] = status_filter
 
@@ -1287,7 +1288,7 @@ def _workflow_page(api: ApiClient) -> None:
         if not ok_a:
             return
 
-        options_map: Dict[str, str] = {}
+        options_map: dict[str, str] = {}
         labels_list = []
         for a in acts:
             label = f"{a.get('name','(no name)')} · {a.get('status','')} · {a.get('id','')}"
@@ -1327,7 +1328,7 @@ def _workflow_page(api: ApiClient) -> None:
                 submit = st.form_submit_button("Create (draft)")
 
             if submit:
-                cost_payload: Dict[str, Any] = {}
+                cost_payload: dict[str, Any] = {}
                 if time_hours > 0.0:
                     cost_payload["time_hours"] = float(time_hours)
                 if money > 0.0:
@@ -1374,8 +1375,8 @@ def _workflow_page(api: ApiClient) -> None:
             return
 
         ok_e, errors, _ = api.get_list("/api/v1/errors", params={"limit": 50, "offset": 0})
-        error_labels: List[str] = []
-        error_map: Dict[str, str] = {}
+        error_labels: list[str] = []
+        error_map: dict[str, str] = {}
         if ok_e:
             for e in errors:
                 lbl = f"{e.get('y_true','')}→{e.get('y_pred','')} · {e.get('status','')} · {e.get('id','')}"

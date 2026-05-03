@@ -102,11 +102,23 @@ def transition_action_use_case(
     action_id: str,
     to_status: ActionStatus,
 ) -> None:
-    """Transition an Action status inside a tenant (ONE txn)."""
+    """Transition an Action status inside a tenant (ONE txn).
+
+    Side effects beyond status change:
+      - DONE: completed_at is auto-set to now.
+      - non-DONE (from any prior state): completed_at is cleared.
+      - CANCELLED is REJECTED here: it requires cancel_reason and must use
+        a dedicated cancel endpoint (TransitionRequest carries no reason).
+    """
 
     # Local import to avoid a module import cycle:
     # use_cases.archive imports ensure_transition from this module.
     from use_cases.archive import NotFoundError
+
+    if to_status == ActionStatus.CANCELLED:
+        raise UseCaseValidationError(
+            "Cancelling an Action requires cancel_reason; use a dedicated cancel endpoint."
+        )
 
     with repo.session() as s:
         row = repo.get_action_in_session(s, tenant_id, action_id)
@@ -115,10 +127,15 @@ def transition_action_use_case(
 
         ensure_transition("action", row.status, to_status.value)
 
+        now = _utcnow_naive()
+        new_completed_at: datetime | None = (
+            now if to_status == ActionStatus.DONE else None
+        )
+
         payload: dict[str, Any] = {
             "id": row.id,
             "created_at": row.created_at,
-            "updated_at": _utcnow_naive(),
+            "updated_at": now,
             "status": to_status,
             "hypothesis_id": row.hypothesis_id,
             "name": row.name,
@@ -126,7 +143,7 @@ def transition_action_use_case(
             "risk_if_false": row.risk_if_false,
             "cost": row.cost,
             "expected_artifacts": list(row.expected_artifacts or []),
-            "completed_at": row.completed_at,
+            "completed_at": new_completed_at,
             "cancel_reason": row.cancel_reason,
         }
 
@@ -138,7 +155,8 @@ def transition_action_use_case(
             ) from exc
 
         row.status = to_status.value
-        row.updated_at = _utcnow_naive()
+        row.updated_at = now
+        row.completed_at = new_completed_at
 
 
 def transition_hypothesis_use_case(

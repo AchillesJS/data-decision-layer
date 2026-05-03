@@ -161,6 +161,19 @@ def test_data_potential_invariants():
             sample_size=0,
         )
 
+    # No Oracle Rule: ESTIMATED without any evidence must fail.
+    with pytest.raises(ValidationError):
+        DataPotential(
+            metric_name="accuracy",
+            current=0.7,
+            status=DataPotentialStatus.ESTIMATED,
+            upper_bound_range=(0.65, 0.85),
+            limiting_factors=["label noise"],
+            assumptions=["labeling policy unchanged"],
+            sample_size=500,
+            # no evidence_error_ids, no evidence_run_ids
+        )
+
     p = DataPotential(
         metric_name="accuracy",
         current=0.7,
@@ -170,5 +183,7 @@ def test_data_potential_invariants():
         assumptions=["labeling policy unchanged", "same deployment distribution"],
         scenarios={"best_case": (0.75, 0.9)},
         sample_size=500,
+        evidence_run_ids=["run-1", "run-2"],
     )
     assert p.upper_bound_range == (0.65, 0.85)
+    assert p.evidence_run_ids == ["run-1", "run-2"]

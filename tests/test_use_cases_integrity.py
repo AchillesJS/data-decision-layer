@@ -265,3 +265,54 @@ def test_use_case_does_not_call_wrapper_archive_action(
 
     _e, _h, a = _seed_basic(repo, _TENANT)
     archive_action_use_case(repo, _TENANT, str(a.id))
+
+
+def test_transition_action_to_done_sets_completed_at(repo: Repository) -> None:
+    h = Hypothesis(title="Lighting", statement=None)
+    a = Action(
+        hypothesis_id=h.id,
+        name="Act",
+        description="action through full lifecycle",
+        risk_if_false=RiskLevel.LOW,
+        cost=CostEstimate(time_hours=1.0),
+        status=ActionStatus.DRAFT,
+    )
+
+    with repo.session() as s:
+        repo.create_hypothesis_in_session(s, _TENANT, h)
+        repo.create_action_in_session(s, _TENANT, a)
+
+    from use_cases.transitions import transition_action_use_case
+
+    transition_action_use_case(repo, _TENANT, str(a.id), ActionStatus.PROPOSED)
+    transition_action_use_case(repo, _TENANT, str(a.id), ActionStatus.APPROVED)
+    transition_action_use_case(repo, _TENANT, str(a.id), ActionStatus.IN_PROGRESS)
+    transition_action_use_case(repo, _TENANT, str(a.id), ActionStatus.DONE)
+
+    row = repo.get_action(_TENANT, str(a.id))
+    assert row is not None
+    assert row.status == ActionStatus.DONE.value
+    assert row.completed_at is not None
+
+
+def test_transition_action_to_cancelled_via_transition_is_rejected(
+    repo: Repository,
+) -> None:
+    h = Hypothesis(title="Lighting", statement=None)
+    a = Action(
+        hypothesis_id=h.id,
+        name="Act",
+        description="action that should not be cancelled via /transition",
+        risk_if_false=RiskLevel.LOW,
+        cost=CostEstimate(time_hours=1.0),
+        status=ActionStatus.PROPOSED,
+    )
+
+    with repo.session() as s:
+        repo.create_hypothesis_in_session(s, _TENANT, h)
+        repo.create_action_in_session(s, _TENANT, a)
+
+    from use_cases.transitions import transition_action_use_case
+
+    with pytest.raises(UseCaseValidationError):
+        transition_action_use_case(repo, _TENANT, str(a.id), ActionStatus.CANCELLED)

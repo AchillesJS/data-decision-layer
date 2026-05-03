@@ -33,6 +33,68 @@ ModelParams: TypeAlias = tuple[float, float] | tuple[float, float, float]
 FloatArray: TypeAlias = npt.NDArray[np.float64]
 
 
+# =========================
+# Heuristic thresholds (v1)
+# =========================
+# NOTE: These constants intentionally make the heuristic nature of v1 explicit.
+# They are not claims about "true" learning dynamics; they tune a conservative,
+# range-only estimator for decision-support.
+
+# Fit quality (metric is assumed in [0,1])
+FIT_OK_MAE_MAX = 0.02  # abs MAE for 'ok' fit (heuristic v1)
+FIT_OK_R2_MIN = 0.5  # minimal r2 for 'ok' (heuristic v1)
+FIT_WEAK_MAE_MAX = 0.05  # upper MAE bound for 'weak' fit (heuristic v1)
+
+# Gain clamp
+GAIN_CLAMP_LO = -0.02  # allow small negative due to noise
+GAIN_CLAMP_HI = 1.0  # metric max
+
+# Confidence scoring
+CONF_BASE = 0.2
+CONF_PER_UNIQUE_X = 0.15
+CONF_UNIQUE_X_BASELINE = 2  # points below/at this do not increase confidence
+CONF_MAX = 0.9
+CONF_PENALTY_WEAK = 0.15
+CONF_PENALTY_BAD = 0.30
+CONF_PENALTY_INSUFF = 0.40
+CONF_BONUS_REPEAT = 0.05
+STD_T1 = 0.03  # std threshold 1
+STD_T2 = 0.06  # std threshold 2
+STD_PENALTY_T1 = 0.10  # penalty when STD_T1 < std <= STD_T2
+STD_PENALTY_T2 = 0.20  # penalty when std > STD_T2
+CONF_LOW_ASSUMPTION_T = 0.6
+
+# Regime thresholds
+REGIME_NOISE_STD_MAX_T = 0.07
+REGIME_NOISE_STD_MEAN_T = 0.05
+REGIME_CLEAN_STD_MEAN_T = 0.03
+REGIME_SLOPE_HIGH_T = 0.02
+REGIME_SLOPE_LOW_T = 0.005
+REGIME_OPT_STD_MEAN_T = 0.04
+REGIME_OPT_MONO_VIOL_MIN = 2
+
+# Regime confidence levels (heuristic v1; capped later by overall confidence)
+REGIME_CONF_UNKNOWN_DEFAULT = 0.35
+REGIME_CONF_UNKNOWN_INSUFF = 0.2
+REGIME_CONF_NOISE = 0.6
+REGIME_CONF_DATA = 0.65
+REGIME_CONF_MODEL = 0.65
+REGIME_CONF_OPT = 0.5
+
+# Insufficient coverage headroom
+INSUFF_COVERAGE_HEADROOM = 0.10  # placeholder headroom when <3 unique x (explicitly non-evidence)
+MIN_UNIQUE_X_FOR_ESTIMATE = 3  # minimum unique x required for non-insufficient fit/regime heuristics
+
+# Evidence payload cap
+EVIDENCE_MAX_RUN_IDS = 200  # cap response payload; keep evidence honest via total counter
+
+# Misc thresholds
+MONOTONIC_TOL = 0.01  # tolerance for monotonicity check on y_mean
+LOG_CEILING_PROJECTION_MULT = 10.0  # log model has no ceiling; project at 10x max-x
+BOOTSTRAP_Q_LO = 0.2
+BOOTSTRAP_Q_HI = 0.8
+
+
 @dataclass(frozen=True)
 class _GroupedX:
     x: float
@@ -43,7 +105,7 @@ class _GroupedX:
 
 
 def _safe_float(v: float) -> float:
-    if isinstance(v, (int, float)):
+    if isinstance(v, int | float):
         return float(v)
     raise TypeError("not numeric")
 
@@ -97,7 +159,7 @@ def _group_by_x(run_points: Sequence[RunPoint]) -> list[_GroupedX]:
     return grouped
 
 
-def _monotonic_violations(grouped: Sequence[_GroupedX], tol: float = 0.01) -> list[str]:
+def _monotonic_violations(grouped: Sequence[_GroupedX], tol: float = MONOTONIC_TOL) -> list[str]:
     violations: list[str] = []
     for prev, cur in zip(grouped, grouped[1:], strict=False):
         if cur.y_mean < prev.y_mean - tol:
@@ -183,9 +245,9 @@ def _power_predict(params: tuple[float, float, float], x: FloatArray) -> FloatAr
 def _fit_quality(mae: float | None, r2: float | None) -> FitQuality:
     if mae is None:
         return "bad"
-    if mae <= 0.02 and (r2 is not None and r2 >= 0.5):
+    if mae <= FIT_OK_MAE_MAX and (r2 is not None and r2 >= FIT_OK_R2_MIN):
         return "ok"
-    if mae <= 0.05:
+    if mae <= FIT_WEAK_MAE_MAX:
         return "weak"
     return "bad"
 
@@ -250,11 +312,11 @@ def _estimate_from_model(
     def predict_at(xx: float) -> float:
         x_arr: FloatArray = np.asarray([xx], dtype=np.float64)
         if family == "power" and params is not None:
-            p = cast(tuple[float, float, float], params)
-            y = float(_power_predict(p, x_arr)[0])
+            params_power = cast(tuple[float, float, float], params)
+            y = float(_power_predict(params_power, x_arr)[0])
         elif family == "log" and params is not None:
-            p = cast(tuple[float, float], params)
-            y = float(_log_predict(p, x_arr)[0])
+            params_log = cast(tuple[float, float], params)
+            y = float(_log_predict(params_log, x_arr)[0])
         else:
             y = float("nan")
         return float(np.clip(y, 0.0, 1.0))
@@ -264,10 +326,10 @@ def _estimate_from_model(
         ceiling = float(np.clip(float(p[0]), 0.0, 1.0))  # c
     elif family == "log" and params is not None:
         # Honest heuristic: log has no ceiling; project at 10x max-x, clamp to [0,1]
-        ceiling = predict_at(x_max * 10.0)
+        ceiling = predict_at(x_max * LOG_CEILING_PROJECTION_MULT)
     else:
         # No fit: conservative small headroom; low confidence handled elsewhere
-        ceiling = float(min(1.0, max(current, current + 0.10)))
+        ceiling = float(min(1.0, max(current, current + INSUFF_COVERAGE_HEADROOM)))
 
     gain_20 = predict_at(x_max * (1.0 + pcts[0])) - current
     gain_50 = predict_at(x_max * (1.0 + pcts[1])) - current
@@ -320,13 +382,13 @@ def _bootstrap_ranges(
         g50s.append(float(g50))
 
     if not ceilings:
-        ceilings = [float(min(1.0, current + 0.1))]
+        ceilings = [float(min(1.0, current + INSUFF_COVERAGE_HEADROOM))]
         g20s = [0.0]
         g50s = [0.0]
 
     def q20_80(arr: Sequence[float]) -> tuple[float, float]:
         a = np.asarray(arr, dtype=np.float64)
-        lo, hi = np.quantile(a, [0.2, 0.8])
+        lo, hi = np.quantile(a, [BOOTSTRAP_Q_LO, BOOTSTRAP_Q_HI])
         return float(lo), float(hi)
 
     ceiling_range = q20_80(ceilings)
@@ -335,9 +397,9 @@ def _bootstrap_ranges(
 
     def clamp_gain(r: tuple[float, float]) -> tuple[float, float]:
         lo, hi = r
-        lo = max(lo, -0.02)
+        lo = max(lo, GAIN_CLAMP_LO)
         hi = max(hi, lo)
-        hi = min(hi, 1.0)
+        hi = min(hi, GAIN_CLAMP_HI)
         return float(lo), float(hi)
 
     ceiling_range = (max(ceiling_range[0], current), max(ceiling_range[1], current))
@@ -356,30 +418,30 @@ def _confidence_score(
     if n_unique_x <= 0:
         c = 0.0
     else:
-        c = 0.2 + 0.15 * max(0, n_unique_x - 2)
-        c = min(c, 0.9)
+        c = CONF_BASE + CONF_PER_UNIQUE_X * max(0, n_unique_x - CONF_UNIQUE_X_BASELINE)
+        c = min(c, CONF_MAX)
 
     if fit_quality == "weak":
-        c -= 0.15
+        c -= CONF_PENALTY_WEAK
     elif fit_quality == "bad":
-        c -= 0.30
+        c -= CONF_PENALTY_BAD
     elif fit_quality == "insufficient_data":
-        c -= 0.40
+        c -= CONF_PENALTY_INSUFF
 
     has_repeats = any(g.count >= 2 for g in grouped)
     has_many_repeats = any(g.count >= 3 for g in grouped)
     if has_repeats:
-        c += 0.05
+        c += CONF_BONUS_REPEAT
     if has_many_repeats:
-        c += 0.05
+        c += CONF_BONUS_REPEAT
 
-    if std_at_max_x > 0.06:
-        c -= 0.20
-    elif std_at_max_x > 0.03:
-        c -= 0.10
+    if std_at_max_x > STD_T2:
+        c -= STD_PENALTY_T2
+    elif std_at_max_x > STD_T1:
+        c -= STD_PENALTY_T1
 
     c = float(np.clip(c, 0.0, 1.0))
-    if c < 0.6:
+    if c < CONF_LOW_ASSUMPTION_T:
         assumptions.append("Requires more runs for stronger claims")
     return c, assumptions
 
@@ -422,8 +484,8 @@ def _regime_from_signals(
             )
         )
 
-    if n_unique_x < 3 or fit.fit_quality in {"bad", "insufficient_data"}:
-        return "UNKNOWN", 0.2, signals
+    if n_unique_x < MIN_UNIQUE_X_FOR_ESTIMATE or fit.fit_quality in {"bad", "insufficient_data"}:
+        return "UNKNOWN", REGIME_CONF_UNKNOWN_INSUFF, signals
 
     x_max = grouped[-1].x
     slope_gain_20: float
@@ -432,52 +494,48 @@ def _regime_from_signals(
         fam: ModelFamily = cast(ModelFamily, fit.model_family)
         x: FloatArray = np.asarray([g.x for g in grouped], dtype=np.float64)
         y: FloatArray = np.asarray([g.y_mean for g in grouped], dtype=np.float64)
+        params: ModelParams | None
         if fam == "power":
             params = _power_fit_grid(x, y)
         else:
             params = _log_fit(x, y)
 
-        ceiling, g20, _ = _estimate_from_model(fam, params, x_max=x_max, current=current, pcts=pcts)
+        _ceiling, g20, _ = _estimate_from_model(fam, params, x_max=x_max, current=current, pcts=pcts)
         slope_gain_20 = g20
-        signals.append(
-            RegimeSignal(
-                name="slope_gain_at_max_x_+20%",
-                value=round(float(slope_gain_20), 6),
-                why="Expected marginal gain from increasing x near current max.",
-            )
-        )
-        signals.append(
-            RegimeSignal(
-                name="ceiling_point_estimate",
-                value=round(float(ceiling), 6),
-                why="Ceiling proxy used by v1 (family-dependent).",
-            )
-        )
     else:
         dy = grouped[-1].y_mean - grouped[-2].y_mean
         dx_log = math.log(grouped[-1].x) - math.log(grouped[-2].x)
         slope_gain_20 = (dy / dx_log) * math.log(1.2) if dx_log > 1e-12 else 0.0
-        signals.append(
-            RegimeSignal(
-                name="slope_gain_at_max_x_+20%",
-                value=round(float(slope_gain_20), 6),
-                why="Finite-difference slope proxy on log-x scale.",
-            )
+
+    # No-Oracle rule: do not emit point estimates for gain/ceiling via signals.
+    # If we want transparency, expose a coarse non-numeric band only.
+    if slope_gain_20 >= REGIME_SLOPE_HIGH_T:
+        band = "HIGH"
+    elif slope_gain_20 <= REGIME_SLOPE_LOW_T:
+        band = "LOW"
+    else:
+        band = "MEDIUM"
+    signals.append(
+        RegimeSignal(
+            name="marginal_gain_band_+20pct",
+            value=band,
+            why="Coarse marginal gain band near max-x (+20%); avoids numeric oracle outputs.",
         )
+    )
 
-    if std_max >= 0.07 or std_mean >= 0.05:
-        return "NOISE_LIMITED", 0.6, signals
+    if std_max >= REGIME_NOISE_STD_MAX_T or std_mean >= REGIME_NOISE_STD_MEAN_T:
+        return "NOISE_LIMITED", REGIME_CONF_NOISE, signals
 
-    if slope_gain_20 >= 0.02 and std_mean < 0.03:
-        return "DATA_LIMITED", 0.65, signals
+    if slope_gain_20 >= REGIME_SLOPE_HIGH_T and std_mean < REGIME_CLEAN_STD_MEAN_T:
+        return "DATA_LIMITED", REGIME_CONF_DATA, signals
 
-    if slope_gain_20 <= 0.005 and std_mean < 0.03:
-        return "MODEL_LIMITED", 0.65, signals
+    if slope_gain_20 <= REGIME_SLOPE_LOW_T and std_mean < REGIME_CLEAN_STD_MEAN_T:
+        return "MODEL_LIMITED", REGIME_CONF_MODEL, signals
 
-    if len(fit.sanity.violations) >= 2 and std_mean >= 0.04:
-        return "OPTIMIZATION_LIMITED", 0.5, signals
+    if len(fit.sanity.violations) >= REGIME_OPT_MONO_VIOL_MIN and std_mean >= REGIME_OPT_STD_MEAN_T:
+        return "OPTIMIZATION_LIMITED", REGIME_CONF_OPT, signals
 
-    return "UNKNOWN", 0.35, signals
+    return "UNKNOWN", REGIME_CONF_UNKNOWN_DEFAULT, signals
 
 
 def _limiting_factors(regime: Regime) -> list[str]:
@@ -508,7 +566,14 @@ def analyze_saturation(
     if not pts:
         raise ValueError("no valid run_points after preprocessing")
 
-    evidence_run_ids = [p.run_id for p in pts]
+    evidence_unique = list(dict.fromkeys(p.run_id for p in pts))
+    evidence_total = len(evidence_unique)
+    evidence_run_ids = evidence_unique[:EVIDENCE_MAX_RUN_IDS]
+    evidence_cap_note: str | None = None
+    if evidence_total > EVIDENCE_MAX_RUN_IDS:
+        evidence_cap_note = (
+            f"evidence_run_ids capped to {EVIDENCE_MAX_RUN_IDS} of {evidence_total} runs"
+        )
     grouped = _group_by_x(pts)
 
     current = grouped[-1].y_mean
@@ -523,7 +588,7 @@ def analyze_saturation(
         x_max=float(grouped[-1].x),
     )
 
-    if len(grouped) < 3:
+    if len(grouped) < MIN_UNIQUE_X_FOR_ESTIMATE:
         fit = FitReport(
             model_family="none",
             fit_quality="insufficient_data",
@@ -533,11 +598,13 @@ def analyze_saturation(
             sanity=FitSanity(monotonic_expected=True, violations=violations),
         )
         conf, assumptions = _confidence_score(grouped, "insufficient_data", std_at_max_x)
+        if evidence_cap_note is not None:
+            assumptions.append(evidence_cap_note)
         assumptions.append(
             "Insufficient coverage: ceiling_range uses default +0.10 headroom placeholder (not evidence-based)."
         )
 
-        ceiling_range = (float(current), float(min(1.0, current + 0.10)))
+        ceiling_range = (float(current), float(min(1.0, current + INSUFF_COVERAGE_HEADROOM)))
         sat = SaturationEstimate(
             ceiling_range=ceiling_range,
             marginal_gain_p20_range=(0.0, 0.0),
@@ -545,6 +612,7 @@ def analyze_saturation(
             confidence=conf,
             assumptions=assumptions,
             evidence_run_ids=evidence_run_ids,
+            evidence_run_count_total=evidence_total,
             fit=fit,
         )
         regime, r_conf, signals = _regime_from_signals(grouped, fit, current=current, pcts=pcts)
@@ -553,6 +621,7 @@ def analyze_saturation(
             confidence=float(np.clip(min(conf, r_conf), 0.0, 1.0)),
             signals=signals,
             evidence_run_ids=evidence_run_ids,
+            evidence_run_count_total=evidence_total,
         )
         draft = DataPotentialDraft(
             current=float(np.clip(current, 0.0, 1.0)),
@@ -561,7 +630,7 @@ def analyze_saturation(
             confidence=sat.confidence,
             limiting_factors=_limiting_factors(regime_est.regime),
             assumptions=sat.assumptions,
-            evidence={"run_ids": evidence_run_ids},
+            evidence={"run_ids": evidence_run_ids, "run_count_total": evidence_total},
         )
         return sat, regime_est, draft
 
@@ -583,6 +652,8 @@ def analyze_saturation(
     )
 
     conf, assumptions = _confidence_score(grouped, fit_quality, std_at_max_x)
+    if evidence_cap_note is not None:
+        assumptions.append(evidence_cap_note)
 
     rng = np.random.default_rng(rng_seed)
     ceiling_range, g20_range, g50_range = _bootstrap_ranges(
@@ -606,6 +677,7 @@ def analyze_saturation(
         confidence=conf,
         assumptions=assumptions,
         evidence_run_ids=evidence_run_ids,
+        evidence_run_count_total=evidence_total,
         fit=fit,
     )
 
@@ -615,6 +687,7 @@ def analyze_saturation(
         confidence=float(np.clip(min(conf, r_conf), 0.0, 1.0)),
         signals=signals,
         evidence_run_ids=evidence_run_ids,
+        evidence_run_count_total=evidence_total,
     )
 
     draft = DataPotentialDraft(
@@ -624,7 +697,7 @@ def analyze_saturation(
         confidence=sat.confidence,
         limiting_factors=_limiting_factors(regime_est.regime),
         assumptions=sat.assumptions,
-        evidence={"run_ids": evidence_run_ids},
+        evidence={"run_ids": evidence_run_ids, "run_count_total": evidence_total},
     )
 
     return sat, regime_est, draft

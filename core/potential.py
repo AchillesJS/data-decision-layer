@@ -17,9 +17,10 @@ class DataPotential(BaseModel):
     """Estimation of reasonable upper-bound expectations from data (NOT a forecast).
 
     Canon:
-    - no promises
-    - uncertainty is explicit
-    - assumptions are explicit
+      - no promises
+      - uncertainty is explicit
+      - assumptions are explicit
+      - evidence is required for ESTIMATED (No Oracle Rule)
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -48,10 +49,12 @@ class DataPotential(BaseModel):
         default=0.4,
         ge=0.0,
         le=1.0,
-        description="Confidence in the estimate (0..1). This is about the estimate, not the metric.",
+        description="Confidence in the estimate (0..1). About the estimate, not the metric.",
     )
 
-    sample_size: int = Field(default=0, ge=0, description="How many evaluation samples back this estimate.")
+    sample_size: int = Field(
+        default=0, ge=0, description="How many evaluation samples back this estimate."
+    )
 
     limiting_factors: list[str] = Field(
         default_factory=list,
@@ -62,7 +65,14 @@ class DataPotential(BaseModel):
         description="Explicit conditions for this estimate to hold.",
     )
 
-    evidence_error_ids: list[UUID] = Field(default_factory=list, description="Errors that motivated this estimate.")
+    evidence_error_ids: list[UUID] = Field(
+        default_factory=list,
+        description="Errors that motivated this estimate (legacy error-driven flow).",
+    )
+    evidence_run_ids: list[str] = Field(
+        default_factory=list,
+        description="Runs that motivated this estimate (analytics-driven flow).",
+    )
     notes: str | None = Field(default=None, max_length=2_000)
 
     @field_validator("limiting_factors", "assumptions")
@@ -71,6 +81,16 @@ class DataPotential(BaseModel):
         cleaned = [s.strip() for s in v]
         if any(s == "" for s in cleaned):
             raise ValueError("items must be non-empty strings")
+        return cleaned
+
+    @field_validator("evidence_run_ids")
+    @classmethod
+    def _no_empty_run_ids(cls, v: list[str]) -> list[str]:
+        cleaned = [s.strip() for s in v]
+        if any(s == "" for s in cleaned):
+            raise ValueError("evidence_run_ids items must be non-empty strings")
+        if len(set(cleaned)) != len(cleaned):
+            raise ValueError("evidence_run_ids must not contain duplicates")
         return cleaned
 
     @staticmethod
@@ -103,5 +123,10 @@ class DataPotential(BaseModel):
                 raise ValueError("ESTIMATED potential must include assumptions")
             if self.sample_size <= 0:
                 raise ValueError("ESTIMATED potential must set sample_size > 0")
+            if not self.evidence_error_ids and not self.evidence_run_ids:
+                raise ValueError(
+                    "ESTIMATED potential must reference evidence: "
+                    "evidence_error_ids and/or evidence_run_ids"
+                )
 
         return self

@@ -123,6 +123,27 @@ def test_gain_ranges_non_negative_reasonable():
         assert lo >= -0.02
         assert hi >= lo
         assert hi <= 1.0
+
+
+def test_no_oracle_through_regime_signals() -> None:
+    pts = [
+        _rp("o1", 100, 0.55),
+        _rp("o2", 200, 0.60),
+        _rp("o3", 400, 0.64),
+    ]
+    _, regime, _ = analyze_saturation(pts, n_boot=40, rng_seed=0)
+
+    forbidden = {"ceiling_point_estimate", "slope_gain_at_max_x_+20%"}
+    names = {s.name for s in regime.signals}
+    assert names.isdisjoint(forbidden)
+
+    # If a transparency band is present, it must be non-numeric.
+    band = next((s for s in regime.signals if s.name == "marginal_gain_band_+20pct"), None)
+    if band is not None:
+        assert isinstance(band.value, str)
+        assert band.value in {"LOW", "MEDIUM", "HIGH"}
+
+
 def test_determinism_fixed_rng_seed():
     pts = [
         _rp("d1", 50, 0.50, seed=1),

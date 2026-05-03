@@ -20,6 +20,7 @@ class DataPotentialCreate(BaseModel):
     limiting_factors: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     evidence_error_ids: list[str] = Field(default_factory=list)
+    evidence_run_ids: list[str] = Field(default_factory=list)
     notes: str | None = None
 
 
@@ -40,4 +41,5 @@ class DataPotentialRead(BaseModel):
     limiting_factors: list[str]
     assumptions: list[str]
     evidence_error_ids: list[str]
+    evidence_run_ids: list[str]
     notes: str | None

@@ -35,6 +35,7 @@ def _row_to_read(row) -> DataPotentialRead:
         limiting_factors=list(row.limiting_factors or []),
         assumptions=list(row.assumptions or []),
         evidence_error_ids=list(row.evidence_error_ids or []),
+        evidence_run_ids=list(row.evidence_run_ids or []),
         notes=row.notes,
     )
 
