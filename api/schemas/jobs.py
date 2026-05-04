@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field
 
-from contracts.run_report import RunReportV1
+from contracts.run_report import RunReportV1, RunReportV2
+
+RunReportPayload = Annotated[
+    RunReportV1 | RunReportV2, Field(discriminator="schema_version")
+]
 
 
 class RunnerRegisterRequest(BaseModel):
@@ -88,7 +92,7 @@ class JobCompleteRequest(BaseModel):
     status: Literal["SUCCEEDED", "FAILED", "CANCELED"]
     exit_code: int | None = None
     error_message: str | None = None
-    run_report: RunReportV1 | None = None
+    run_report: RunReportPayload | None = None
 
 
 class JobCompleteResponse(BaseModel):

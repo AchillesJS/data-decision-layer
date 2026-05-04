@@ -19,6 +19,7 @@ from store.models import (
     ActionRow,
     DataPotentialRow,
     DecisionRecordRow,
+    DiagnosticSignalPointRow,
     ErrorRow,
     HypothesisRow,
     JobLogChunkRow,
@@ -80,6 +81,16 @@ class RunCreateData:
 
 @dataclass(frozen=True)
 class MetricPointCreateData:
+    id: str
+    series_name: str
+    x_kind: str
+    x_value: float
+    y_value: float
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class DiagnosticSignalPointCreateData:
     id: str
     series_name: str
     x_kind: str
@@ -1257,6 +1268,64 @@ class Repository:
             for r in rows:
                 s.expunge(r)
             return rows
+
+    # -----------------
+    # Diagnostic signal points (optional)
+    # -----------------
+
+    def create_diagnostic_signal_points_in_session(
+        self,
+        s: Session,
+        tenant_id: str,
+        run_id: str,
+        data: list[DiagnosticSignalPointCreateData],
+    ) -> None:
+        for p in data:
+            row = DiagnosticSignalPointRow(
+                id=str(p.id),
+                tenant_id=tenant_id,
+                run_id=run_id,
+                series_name=str(p.series_name),
+                x_kind=str(p.x_kind),
+                x_value=float(p.x_value),
+                y_value=float(p.y_value),
+                created_at=_naive_utc(p.created_at),
+            )
+            s.add(row)
+
+    def list_diagnostic_signal_points_for_runs(
+        self,
+        tenant_id: str,
+        run_ids: list[str],
+        *,
+        chunk_size: int = 500,
+    ) -> list[DiagnosticSignalPointRow]:
+        if not run_ids:
+            return []
+
+        effective_chunk = max(1, min(int(chunk_size), 500))
+        unique_sorted = sorted(set(run_ids))
+
+        out: list[DiagnosticSignalPointRow] = []
+        with self.read_session() as s:  # type: Session
+            for i in range(0, len(unique_sorted), effective_chunk):
+                chunk = unique_sorted[i : i + effective_chunk]
+                stmt = select(DiagnosticSignalPointRow).where(
+                    DiagnosticSignalPointRow.tenant_id == tenant_id,
+                    DiagnosticSignalPointRow.run_id.in_(list(chunk)),
+                )
+                stmt = stmt.order_by(
+                    DiagnosticSignalPointRow.run_id.asc(),
+                    DiagnosticSignalPointRow.series_name.asc(),
+                    DiagnosticSignalPointRow.x_value.asc(),
+                    DiagnosticSignalPointRow.id.asc(),
+                )
+                rows = list(s.scalars(stmt).all())
+                for r in rows:
+                    s.expunge(r)
+                out.extend(rows)
+
+        return out
 
     def list_metric_points_for_runs(
         self,

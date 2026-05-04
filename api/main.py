@@ -14,6 +14,7 @@ from api.routers import (
     actions,
     analytics,
     decisions,
+    diagnostics,
     errors,
     hypotheses,
     jobs,
@@ -100,6 +101,7 @@ def create_app() -> FastAPI:
     app.include_router(runners.router)
     app.include_router(jobs.router)
     app.include_router(analytics.router)
+    app.include_router(diagnostics.router)
 
     return app
 

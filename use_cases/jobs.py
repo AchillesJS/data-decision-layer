@@ -8,9 +8,10 @@ from uuid import uuid4
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from contracts.run_report import RunReportV1
+from contracts.run_report import RunReportV1, RunReportV2
 from store.models import JobLogChunkRow, JobRow
 from store.repository import (
+    DiagnosticSignalPointCreateData,
     JobCreateData,
     JobLogChunkCreateData,
     MetricPointCreateData,
@@ -223,7 +224,7 @@ def _create_or_get_run_from_report_in_session(
     repo: Repository,
     s: Session,
     tenant_id: str,
-    report: RunReportV1,
+    report: RunReportV1 | RunReportV2,
 ) -> str:
     existing = repo.get_run_by_external_run_id_in_session(s, tenant_id, report.external_run_id)
     if existing is not None:
@@ -266,6 +267,21 @@ def _create_or_get_run_from_report_in_session(
         for point in report.metric_points
     ]
     repo.create_metric_points_in_session(s, tenant_id, run.id, points)
+
+    if isinstance(report, RunReportV2) and report.diagnostic_signals:
+        diag_data = [
+            DiagnosticSignalPointCreateData(
+                id=str(uuid4()),
+                series_name=p.series_name,
+                x_kind=p.x_kind,
+                x_value=p.x_value,
+                y_value=p.y_value,
+                created_at=now,
+            )
+            for p in report.diagnostic_signals
+        ]
+        repo.create_diagnostic_signal_points_in_session(s, tenant_id, run.id, diag_data)
+
     return str(run.id)
 
 
@@ -280,7 +296,7 @@ def complete_job(
     status: str,
     exit_code: int | None,
     error_message: str | None,
-    run_report: RunReportV1 | None,
+    run_report: RunReportV1 | RunReportV2 | None,
 ) -> JobRow:
     if status not in _ALLOWED_COMPLETE_STATUSES:
         raise UseCaseValidationError("Invalid complete status")

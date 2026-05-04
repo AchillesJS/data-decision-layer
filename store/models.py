@@ -297,6 +297,34 @@ class MetricPointRow(Base):
     __table_args__ = (Index("ix_metric_points_tenant_id_run_id", "tenant_id", "run_id"),)
 
 
+class DiagnosticSignalPointRow(Base):
+    __tablename__ = "diagnostic_signal_points"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.id", ondelete="CASCADE"), nullable=False
+    )
+    series_name: Mapped[str] = mapped_column(String, nullable=False)
+    x_kind: Mapped[str] = mapped_column(String, nullable=False)
+    x_value: Mapped[float] = mapped_column(Float, nullable=False)
+    y_value: Mapped[float] = mapped_column(Float, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "run_id",
+            "series_name",
+            "x_kind",
+            "x_value",
+            name="uq_diagnostic_signal_points_tenant_run_series_xkind_xvalue",
+        ),
+        Index("ix_diagnostic_signal_points_run", "tenant_id", "run_id"),
+    )
+
+
 class RunnerRow(Base):
     __tablename__ = "runners"
 
