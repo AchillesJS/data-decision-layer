@@ -15,6 +15,13 @@ FindingKindRead = Literal[
     "high_variance",
     "train_underfitting",
     "premature_saturation",
+    "series_was_reordered",
+    "vanishing_gradient",
+    "exploding_gradient",
+    "gradient_norm_decay",
+    "learning_rate_too_high",
+    "learning_rate_too_low",
+    "weight_norm_explosion",
 ]
 
 SeverityRead = Literal["info", "warn", "critical"]

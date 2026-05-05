@@ -5,7 +5,8 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TypeVar
+from typing import Any, TypeVar
+from uuid import uuid4
 
 from sqlalchemy import Engine, create_engine, func, select
 from sqlalchemy.orm import Session, joinedload, sessionmaker, with_loader_criteria
@@ -19,6 +20,7 @@ from store.models import (
     ActionRow,
     DataPotentialRow,
     DecisionRecordRow,
+    DiagnosisReportRow,
     DiagnosticSignalPointRow,
     ErrorRow,
     HypothesisRow,
@@ -1533,6 +1535,142 @@ class Repository:
     ) -> list[JobLogChunkRow]:
         with self.read_session() as s:
             rows = self.list_job_log_chunks_in_session(s, tenant_id, job_id, limit=limit)
+            for row in rows:
+                s.expunge(row)
+            return rows
+
+    # -----------------
+    # Diagnosis reports (read/write)
+    # -----------------
+
+    def upsert_diagnosis_report_in_session(
+        self,
+        s: Session,
+        tenant_id: str,
+        run_id: str,
+        engine_version: str,
+        metric_name: str,
+        n_val_points: int,
+        n_train_points: int,
+        findings_json: list[dict[str, Any]],
+        assumptions_json: list[str],
+    ) -> DiagnosisReportRow:
+        existing = s.scalars(
+            select(DiagnosisReportRow).where(
+                DiagnosisReportRow.tenant_id == tenant_id,
+                DiagnosisReportRow.run_id == run_id,
+                DiagnosisReportRow.engine_version == engine_version,
+            )
+        ).first()
+        now = _utcnow()
+        if existing is not None:
+            existing.metric_name = metric_name
+            existing.n_val_points = int(n_val_points)
+            existing.n_train_points = int(n_train_points)
+            existing.findings_json = list(findings_json)
+            existing.assumptions_json = list(assumptions_json)
+            existing.created_at = now
+            return existing
+
+        row = DiagnosisReportRow(
+            id=str(uuid4()),
+            tenant_id=tenant_id,
+            run_id=run_id,
+            engine_version=engine_version,
+            metric_name=metric_name,
+            n_val_points=int(n_val_points),
+            n_train_points=int(n_train_points),
+            findings_json=list(findings_json),
+            assumptions_json=list(assumptions_json),
+            created_at=now,
+        )
+        s.add(row)
+        return row
+
+    def upsert_diagnosis_report(
+        self,
+        tenant_id: str,
+        run_id: str,
+        engine_version: str,
+        metric_name: str,
+        n_val_points: int,
+        n_train_points: int,
+        findings_json: list[dict[str, Any]],
+        assumptions_json: list[str],
+    ) -> DiagnosisReportRow:
+        with self.session() as s:
+            row = self.upsert_diagnosis_report_in_session(
+                s,
+                tenant_id,
+                run_id,
+                engine_version,
+                metric_name,
+                n_val_points,
+                n_train_points,
+                findings_json,
+                assumptions_json,
+            )
+            s.flush()
+            s.expunge(row)
+            return row
+
+    def get_diagnosis_report_in_session(
+        self,
+        s: Session,
+        tenant_id: str,
+        run_id: str,
+        engine_version: str | None = None,
+    ) -> DiagnosisReportRow | None:
+        stmt = select(DiagnosisReportRow).where(
+            DiagnosisReportRow.tenant_id == tenant_id,
+            DiagnosisReportRow.run_id == run_id,
+        )
+        if engine_version is not None:
+            stmt = stmt.where(DiagnosisReportRow.engine_version == engine_version)
+        stmt = stmt.order_by(
+            DiagnosisReportRow.created_at.desc(),
+            DiagnosisReportRow.id.desc(),
+        )
+        return s.scalars(stmt).first()
+
+    def get_diagnosis_report(
+        self,
+        tenant_id: str,
+        run_id: str,
+        engine_version: str | None = None,
+    ) -> DiagnosisReportRow | None:
+        with self.read_session() as s:
+            row = self.get_diagnosis_report_in_session(s, tenant_id, run_id, engine_version)
+            if row is not None:
+                s.expunge(row)
+            return row
+
+    def list_diagnosis_reports_in_session(
+        self,
+        s: Session,
+        tenant_id: str,
+        run_id: str,
+    ) -> list[DiagnosisReportRow]:
+        stmt = (
+            select(DiagnosisReportRow)
+            .where(
+                DiagnosisReportRow.tenant_id == tenant_id,
+                DiagnosisReportRow.run_id == run_id,
+            )
+            .order_by(
+                DiagnosisReportRow.created_at.desc(),
+                DiagnosisReportRow.id.desc(),
+            )
+        )
+        return list(s.scalars(stmt).all())
+
+    def list_diagnosis_reports(
+        self,
+        tenant_id: str,
+        run_id: str,
+    ) -> list[DiagnosisReportRow]:
+        with self.read_session() as s:
+            rows = self.list_diagnosis_reports_in_session(s, tenant_id, run_id)
             for row in rows:
                 s.expunge(row)
             return rows

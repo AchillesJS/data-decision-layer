@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -20,8 +21,11 @@ from store.repository import (
 )
 from use_cases.actions import UseCaseValidationError
 from use_cases.archive import NotFoundError
+from use_cases.diagnostics import diagnose_and_store_run_use_case
 from use_cases.runners import authenticate_runner_in_session, hash_secret, verify_secret
 from use_cases.transitions import ForbiddenTransitionError
+
+logger = logging.getLogger("ddw.jobs")
 
 LEASE_TTL_SECONDS = 300
 _ALLOWED_COMPLETE_STATUSES = {"SUCCEEDED", "FAILED", "CANCELED"}
@@ -303,6 +307,8 @@ def complete_job(
     if status == "SUCCEEDED" and run_report is None:
         raise UseCaseValidationError("run_report is required when completing a job as SUCCEEDED")
     now = _utcnow_naive()
+    completed_run_id: str | None = None
+    completed_job: JobRow | None = None
     try:
         with repo.session() as s:
             authenticate_runner_in_session(repo, s, tenant_id, runner_id, token)
@@ -321,6 +327,21 @@ def complete_job(
             job.run_id = run_id or job.run_id
             s.flush()
             s.expunge(job)
-            return job
+            completed_job = job
+            completed_run_id = run_id
     except IntegrityError as exc:
         raise ForbiddenTransitionError("Duplicate external_run_id or job log chunk sequence") from exc
+
+    if completed_run_id is not None:
+        try:
+            diagnose_and_store_run_use_case(repo, tenant_id, completed_run_id)
+        except Exception:  # noqa: BLE001 - best-effort, must not break job completion
+            logger.warning(
+                "auto-diagnosis failed for tenant_id=%s run_id=%s",
+                tenant_id,
+                completed_run_id,
+                exc_info=True,
+            )
+
+    assert completed_job is not None  # guaranteed by successful session block
+    return completed_job

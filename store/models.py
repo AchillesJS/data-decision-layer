@@ -325,6 +325,38 @@ class DiagnosticSignalPointRow(Base):
     )
 
 
+class DiagnosisReportRow(Base):
+    __tablename__ = "diagnosis_reports"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(String, nullable=False, index=True)
+
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("runs.id", ondelete="CASCADE"), nullable=False
+    )
+    engine_version: Mapped[str] = mapped_column(String, nullable=False)
+    metric_name: Mapped[str] = mapped_column(String, nullable=False)
+    n_val_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    n_train_points: Mapped[int] = mapped_column(Integer, nullable=False)
+    findings_json: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONText, nullable=False, default=list
+    )
+    assumptions_json: Mapped[list[str]] = mapped_column(
+        JSONText, nullable=False, default=list
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "run_id",
+            "engine_version",
+            name="uq_diagnosis_reports_tenant_run_engine",
+        ),
+        Index("ix_diagnosis_reports_run", "tenant_id", "run_id"),
+    )
+
+
 class RunnerRow(Base):
     __tablename__ = "runners"
 
