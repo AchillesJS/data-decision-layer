@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from api.deps import get_repo, get_tenant_id
 from api.schemas.run import RunCreate, RunRead
+from api.schemas.run_report import RunReportIngestResponse, RunReportPayload
+from use_cases.run_reports import ingest_run_report_use_case
 from use_cases.runs import create_run_use_case
 
 router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
@@ -41,6 +43,20 @@ def _row_to_read(row: Any) -> RunRead:
 def create_run(payload: RunCreate, tenant_id: TenantId, repo: RepoDep) -> RunRead:
     row = create_run_use_case(repo, tenant_id, payload.model_dump(exclude_none=True))
     return _row_to_read(row)
+
+
+@router.post("/ingest", response_model=RunReportIngestResponse)
+def ingest_run_report(
+    payload: RunReportPayload,
+    tenant_id: TenantId,
+    repo: RepoDep,
+) -> RunReportIngestResponse:
+    result = ingest_run_report_use_case(repo, tenant_id, payload)
+    return RunReportIngestResponse(
+        run_id=result.run_id,
+        external_run_id=result.external_run_id,
+        created=result.created,
+    )
 
 
 @router.get("", response_model=list[RunRead])

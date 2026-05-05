@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from contracts.run_report import RunReportV1, RunReportV2
-
-RunReportPayload = Annotated[
-    RunReportV1 | RunReportV2, Field(discriminator="schema_version")
-]
+from api.schemas.run_report import RunReportPayload
 
 
 class RunnerRegisterRequest(BaseModel):

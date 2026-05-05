@@ -163,7 +163,7 @@ class Repository:
         3) project default sqlite+pysqlite:///./workspace.db
         """
 
-        resolved_url = url or os.getenv("DDW_DB_URL") or "sqlite+pysqlite:///./workspace.db"
+        resolved_url = url or os.getenv("DDW_DB_URL") or "sqlite+pysqlite:///./data/app.db"
         engine = create_engine(resolved_url, future=True)
         SessionLocal = sessionmaker(bind=engine, expire_on_commit=False, future=True)
         return cls(engine=engine, SessionLocal=SessionLocal)

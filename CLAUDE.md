@@ -70,3 +70,12 @@ pytest -q
 ruff check .
 mypy .
 python -m alembic upgrade head
+```
+
+## Work style
+
+- Implement one phase at a time.
+- First provide a patch plan.
+- Do not implement future phases unless explicitly asked.
+- Prefer minimal patches over rewrites.
+- Do not add dependencies unless necessary.

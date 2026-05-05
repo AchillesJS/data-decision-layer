@@ -7,21 +7,18 @@ from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from contracts.run_report import RunReportV1, RunReportV2
 from store.models import JobLogChunkRow, JobRow
 from store.repository import (
-    DiagnosticSignalPointCreateData,
     JobCreateData,
     JobLogChunkCreateData,
-    MetricPointCreateData,
     Repository,
-    RunCreateData,
 )
 from use_cases.actions import UseCaseValidationError
 from use_cases.archive import NotFoundError
 from use_cases.diagnostics import diagnose_and_store_run_use_case
+from use_cases.run_reports import ingest_run_report_in_session
 from use_cases.runners import authenticate_runner_in_session, hash_secret, verify_secret
 from use_cases.transitions import ForbiddenTransitionError
 
@@ -224,71 +221,6 @@ def append_logs(
         raise ForbiddenTransitionError("Duplicate job log chunk sequence") from exc
 
 
-def _create_or_get_run_from_report_in_session(
-    repo: Repository,
-    s: Session,
-    tenant_id: str,
-    report: RunReportV1 | RunReportV2,
-) -> str:
-    existing = repo.get_run_by_external_run_id_in_session(s, tenant_id, report.external_run_id)
-    if existing is not None:
-        return str(existing.id)
-
-    now = _utcnow_naive()
-    run_id = str(uuid4())
-    run_meta = report.run
-    run = repo.create_run_in_session(
-        s,
-        tenant_id,
-        RunCreateData(
-            id=run_id,
-            external_run_id=report.external_run_id,
-            created_at=run_meta.started_at.replace(tzinfo=None) if run_meta.started_at else now,
-            updated_at=now,
-            status=run_meta.status,
-            dataset_version=run_meta.dataset_version,
-            dataset_size=run_meta.dataset_size,
-            model_tag=run_meta.model_tag,
-            seed=run_meta.seed,
-            budget_kind=run_meta.budget_kind,
-            budget_value=run_meta.budget_value,
-            metric_name=run_meta.metric_name,
-            split=run_meta.split,
-            metric_final=run_meta.metric_final,
-            config_hash=run_meta.config_hash,
-            git_commit=run_meta.git_commit,
-        ),
-    )
-    points = [
-        MetricPointCreateData(
-            id=str(uuid4()),
-            series_name=point.series_name,
-            x_kind=point.x_kind,
-            x_value=point.x_value,
-            y_value=point.y_value,
-            created_at=now,
-        )
-        for point in report.metric_points
-    ]
-    repo.create_metric_points_in_session(s, tenant_id, run.id, points)
-
-    if isinstance(report, RunReportV2) and report.diagnostic_signals:
-        diag_data = [
-            DiagnosticSignalPointCreateData(
-                id=str(uuid4()),
-                series_name=p.series_name,
-                x_kind=p.x_kind,
-                x_value=p.x_value,
-                y_value=p.y_value,
-                created_at=now,
-            )
-            for p in report.diagnostic_signals
-        ]
-        repo.create_diagnostic_signal_points_in_session(s, tenant_id, run.id, diag_data)
-
-    return str(run.id)
-
-
 def complete_job(
     repo: Repository,
     tenant_id: str,
@@ -318,7 +250,8 @@ def complete_job(
             _validate_lease(job, runner_id, lease_token, now)
             run_id = None
             if run_report is not None:
-                run_id = _create_or_get_run_from_report_in_session(repo, s, tenant_id, run_report)
+                ingest_result = ingest_run_report_in_session(repo, s, tenant_id, run_report)
+                run_id = ingest_result.run_id
             job.status = status
             job.exit_code = exit_code
             job.error_message = error_message
