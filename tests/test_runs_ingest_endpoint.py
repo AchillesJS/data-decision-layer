@@ -13,6 +13,7 @@ from api.deps import get_repo
 from api.main import create_app
 from store.models import Base, DiagnosticSignalPointRow, JobRow, MetricPointRow, RunRow
 from store.repository import Repository
+from use_cases.diagnostics import get_stored_diagnosis_use_case
 
 
 @pytest.fixture()
@@ -200,3 +201,127 @@ def test_jobs_complete_still_uses_same_ingest_logic(client: TestClient) -> None:
         assert run_count == 1
         assert point_count == 3
         assert job.run_id == direct_run_id
+def _v2_report_with_n_val_points(external: str, n: int = 10) -> dict[str, Any]:
+    """Build a v2 report with n val points so the engine actually runs detectors
+    (D_MIN_VAL_POINTS = 5 in diagnostics_v1)."""
+    return {
+        "schema_version": 2,
+        "external_run_id": external,
+        "run": {
+            "model_tag": "m1",
+            "dataset_version": "v1",
+            "dataset_size": 100.0,
+            "seed": 7,
+            "budget_kind": "epochs",
+            "budget_value": float(n),
+            "metric_name": "accuracy",
+            "split": "val",
+            "metric_final": 0.7,
+            "status": "SUCCEEDED",
+            "config_hash": "abc",
+            "git_commit": "def",
+        },
+        "metric_points": [
+            {"series_name": "val", "x_kind": "epoch", "x_value": i, "y_value": 0.5 + i * 0.02}
+            for i in range(1, n + 1)
+        ],
+        "diagnostic_signals": [],
+    }
+
+
+def test_runs_ingest_triggers_auto_diagnosis(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/runs/ingest",
+        headers=_h(),
+        json=_v2_report_with_n_val_points("auto-diag-1", n=10),
+    )
+    assert response.status_code == 200, response.text
+    run_id = str(response.json()["run_id"])
+
+    # Auto-diagnosis should have produced a stored report (best-effort, but
+    # on this clean input it must succeed).
+    repo = _repo(client)
+    stored = get_stored_diagnosis_use_case(repo, "tenantA", run_id)
+    assert stored is not None
+    assert stored.run_id == run_id
+    assert isinstance(stored.findings, list)
+
+
+def test_runs_ingest_does_not_fail_when_diagnosis_fails(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Patch at the source module: ingest does a lazy import and reads the name
+    # at call time, so patching use_cases.diagnostics is sufficient.
+    def boom(*_a: Any, **_kw: Any) -> None:
+        raise RuntimeError("simulated diagnosis failure")
+
+    monkeypatch.setattr(
+        "use_cases.diagnostics.diagnose_and_store_run_use_case", boom
+    )
+
+    response = client.post(
+        "/api/v1/runs/ingest",
+        headers=_h(),
+        json=_v2_report_with_n_val_points("auto-diag-fail", n=10),
+    )
+    # Ingest must still succeed; diagnosis is best-effort.
+    assert response.status_code == 200, response.text
+    run_id = str(response.json()["run_id"])
+
+    # Nothing should have been stored.
+    repo = _repo(client)
+    stored = get_stored_diagnosis_use_case(repo, "tenantA", run_id)
+    assert stored is None
+
+
+def test_runs_ingest_idempotent_does_not_retrigger_diagnosis(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Spy: count how many times diagnose_and_store is invoked across re-ingests.
+    import use_cases.diagnostics as diag_module
+
+    real = diag_module.diagnose_and_store_run_use_case
+    calls: list[str] = []
+
+    def spy(repo: Any, tenant_id: str, run_id: str) -> Any:
+        calls.append(run_id)
+        return real(repo, tenant_id, run_id)
+
+    monkeypatch.setattr(
+        "use_cases.diagnostics.diagnose_and_store_run_use_case", spy
+    )
+
+    payload = _v2_report_with_n_val_points("idem-1", n=10)
+    first = client.post("/api/v1/runs/ingest", headers=_h(), json=payload)
+    second = client.post("/api/v1/runs/ingest", headers=_h(), json=payload)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert first.json()["created"] is True
+    assert second.json()["created"] is False
+    # Diagnosis triggered exactly once — on first ingest, skipped on idempotent re-ingest.
+    assert len(calls) == 1
+def test_runs_ingest_does_not_emit_series_was_reordered_for_in_order_data(
+    client: TestClient,
+) -> None:
+    """Regression: SDK sends points in correct order; backend should not
+    falsely report them as reordered after batch insert + read.
+    """
+    response = client.post(
+        "/api/v1/runs/ingest",
+        headers=_h(),
+        json=_v2_report_with_n_val_points("ordered-1", n=10),
+    )
+    assert response.status_code == 200
+    run_id = str(response.json()["run_id"])
+
+    repo = _repo(client)
+    stored = get_stored_diagnosis_use_case(repo, "tenantA", run_id)
+    assert stored is not None
+    finding_kinds = [f.kind for f in stored.findings]
+    assert "series_was_reordered" not in finding_kinds, (
+        f"False positive: in-order data triggered series_was_reordered. "
+        f"All findings: {finding_kinds}"
+    )

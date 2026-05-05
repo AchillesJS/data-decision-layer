@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -15,6 +16,8 @@ from store.repository import (
     RunCreateData,
 )
 from use_cases.transitions import ForbiddenTransitionError
+
+logger = logging.getLogger(__name__)
 
 
 def _utcnow_naive() -> datetime:
@@ -115,7 +118,7 @@ def ingest_run_report_use_case(
 ) -> RunReportIngestResult:
     try:
         with repo.session() as s:
-            return ingest_run_report_in_session(repo, s, tenant_id, report)
+            result = ingest_run_report_in_session(repo, s, tenant_id, report)
     except IntegrityError as exc:
         with repo.read_session() as s:
             existing = repo.get_run_by_external_run_id_in_session(
@@ -130,3 +133,23 @@ def ingest_run_report_use_case(
                     created=False,
                 )
         raise ForbiddenTransitionError("Duplicate external_run_id") from exc
+
+    # Best-effort auto-diagnosis after successful ingest of a newly created run.
+    # Mirrors the pattern in use_cases.jobs.complete_job: diagnosis runs OUTSIDE
+    # the ingest transaction, swallows all exceptions, and never fails the request.
+    # Skip on idempotent re-ingest (created=False) to avoid re-running diagnosis
+    # whenever a duplicate report is replayed.
+    if result.created:
+        try:
+            from use_cases.diagnostics import diagnose_and_store_run_use_case
+
+            diagnose_and_store_run_use_case(repo, tenant_id, result.run_id)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "auto-diagnosis failed for tenant_id=%s run_id=%s",
+                tenant_id,
+                result.run_id,
+                exc_info=True,
+            )
+
+    return result

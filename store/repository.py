@@ -1265,7 +1265,7 @@ class Repository:
                 MetricPointRow.tenant_id == tenant_id,
                 MetricPointRow.run_id == run_id,
             )
-            stmt = stmt.order_by(MetricPointRow.created_at.asc(), MetricPointRow.id.asc())
+            stmt = stmt.order_by(MetricPointRow.series_name.asc(),MetricPointRow.x_kind.asc(),MetricPointRow.x_value.asc(),MetricPointRow.id.asc())
             rows = list(s.scalars(stmt).all())
             for r in rows:
                 s.expunge(r)
