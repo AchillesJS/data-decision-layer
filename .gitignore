@@ -18,3 +18,24 @@ build/
 prompts/
 *.local.md
 .claude/settings.local.json
+
+# Local environments, generated files, and sensitive configuration
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+.coverage
+htmlcov/
+.DS_Store
